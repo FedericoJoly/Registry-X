@@ -738,6 +738,8 @@ struct TransactionCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(transaction.lineItems) { item in
                     HStack {
+                        // Check if product is deleted
+                        let isDeleted = !event.products.contains(where: { $0.name == item.productName && !$0.isDeleted })
                         let categoryColor = item.product?.category.flatMap { Color(hex: $0.hexColor) } ?? .gray
                         
                         Circle()
@@ -746,6 +748,7 @@ struct TransactionCard: View {
                         
                         Text(item.productName)
                             .font(.subheadline)
+                            .foregroundStyle(isDeleted ? .red : .primary)
                             .lineLimit(1)
                         
                         Spacer()
@@ -1111,9 +1114,12 @@ struct ProductGroupCard: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
+                    // Check if product is deleted
+                    let isDeleted = !event.products.contains(where: { $0.name == group.productName && !$0.isDeleted })
+                    
                     Text(group.productName)
                         .font(.headline)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isDeleted ? .red : .primary)
                     
                     Text("\(group.totalUnits) units")
                         .font(.subheadline)

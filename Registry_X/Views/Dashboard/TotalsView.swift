@@ -109,7 +109,12 @@ struct TotalsView: View {
         
         for transaction in allTransactions {
             for item in transaction.lineItems {
-                if let category = item.product?.category {
+                // Handle deleted products by looking up by name
+                let category = item.product?.category ?? event.products.first(where: { 
+                    $0.name == item.productName && !$0.isDeleted 
+                })?.category
+                
+                if let category = category {
                     let subtotalInMain = convertToMainCurrency(item.subtotal, from: transaction.currencyCode)
                     
                     if let existing = categoryDict[category.id] {
@@ -179,7 +184,11 @@ struct TotalsView: View {
         for transaction in allTransactions {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
-                    productDict[item.productName] = (item.product?.category, [])
+                    // Handle deleted products by looking up by name
+                    let category = item.product?.category ?? event.products.first(where: { 
+                        $0.name == item.productName && !$0.isDeleted 
+                    })?.category
+                    productDict[item.productName] = (category, [])
                 }
                 productDict[item.productName]?.items.append((item, transaction.currencyCode))
             }
@@ -257,7 +266,12 @@ struct TotalsView: View {
         
         for transaction in allTransactions {
             for item in transaction.lineItems {
-                if let category = item.product?.category {
+                // Handle deleted products by looking up by name
+                let category = item.product?.category ?? event.products.first(where: { 
+                    $0.name == item.productName && !$0.isDeleted 
+                })?.category
+                
+                if let category = category {
                     if categoryDict[category.id] == nil {
                         categoryDict[category.id] = (category, [])
                     }
@@ -332,7 +346,11 @@ struct TotalsView: View {
             for item in transaction.lineItems {
                 if let subgroup = item.subgroup, !subgroup.isEmpty {
                     if subgroupDict[subgroup] == nil {
-                        subgroupDict[subgroup] = (item.product?.category, [])
+                        // Handle deleted products by looking up by name
+                        let category = item.product?.category ?? event.products.first(where: { 
+                            $0.name == item.productName && !$0.isDeleted 
+                        })?.category
+                        subgroupDict[subgroup] = (category, [])
                     }
                     subgroupDict[subgroup]?.items.append((item, transaction.currencyCode))
                 }
@@ -689,9 +707,12 @@ struct TotalsProductGroupCard: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
+                    // Check if product is deleted
+                    let isDeleted = !event.products.contains(where: { $0.name == group.productName && !$0.isDeleted })
+                    
                     Text(group.productName)
                         .font(.headline)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isDeleted ? .red : .primary)
                     
                     Text("\(group.totalUnits) units")
                         .font(.subheadline)

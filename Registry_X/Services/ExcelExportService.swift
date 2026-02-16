@@ -168,7 +168,12 @@ class ExcelExportService {
         
         for transaction in event.transactions {
             for item in transaction.lineItems {
-                if let category = item.product?.category {
+                // Handle deleted products by looking up by name
+                let category = item.product?.category ?? event.products.first(where: { 
+                    $0.name == item.productName && !$0.isDeleted 
+                })?.category
+                
+                if let category = category {
                     // Convert to main currency with round-up (same as TotalsView)
                     let subtotalInMain = convertToMainCurrency(item.subtotal, from: transaction.currencyCode, event: event)
                     
@@ -223,7 +228,11 @@ class ExcelExportService {
         for transaction in event.transactions {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
-                    productDict[item.productName] = (item.product?.category, [])
+                    // Handle deleted products by looking up by name
+                    let category = item.product?.category ?? event.products.first(where: { 
+                        $0.name == item.productName && !$0.isDeleted 
+                    })?.category
+                    productDict[item.productName] = (category, [])
                 }
                 productDict[item.productName]?.items.append((item, transaction.currencyCode, transaction))
             }
