@@ -667,7 +667,11 @@ struct TransactionCard: View {
     private var totalSavings: Decimal {
         // Calculate what customer would pay at natural prices
         let naturalTotal = transaction.lineItems.reduce(Decimal(0)) { sum, item in
-            guard let product = item.product else { return sum }
+            // ALWAYS look up by name to avoid invalidated SwiftData references
+            guard let product = event.products.first(where: { 
+                $0.name == item.productName && !$0.isDeleted 
+            }) else { return sum }
+            
             let naturalPrice = product.price // Already in transaction currency
             return sum + (naturalPrice * Decimal(item.quantity))
         }
