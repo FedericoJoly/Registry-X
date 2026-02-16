@@ -269,9 +269,7 @@ class ExcelExportService {
             
             for product in allProducts {
                 let qty = productQuantities[product.id] ?? 0
-                if qty > 0 {
-                    xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\"><v>\(qty)</v></c>"
-                }
+                xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\"><v>\(qty)</v></c>"
                 colNum += 1
             }
             
