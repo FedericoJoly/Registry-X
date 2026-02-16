@@ -1,0 +1,66 @@
+// Append this right after DraftProduct struct
+
+// MARK: - Draft Promo
+struct DraftPromo: Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var mode: PromoMode
+    var categoryId: UUID? // Link by ID
+    var categoryName: String? // For display
+    var maxQuantity: Int
+    var tierPrices: [Int: Decimal] // Tier pricing dictionary
+    var incrementalPrice8to9: Decimal?
+    var incrementalPrice10Plus: Decimal?
+    var isActive: Bool
+    var sortOrder: Int
+    var isDeleted: Bool
+    
+    // Track state
+    var isNew: Bool = false
+    
+    init(from promo: Promo) {
+        self.id = promo.id
+        self.name = promo.name
+        self.mode = promo.mode
+        self.categoryId = promo.category?.id
+        self.categoryName = promo.category?.name
+        self.maxQuantity = promo.maxQuantity
+        self.tierPrices = promo.tierPrices
+        self.incrementalPrice8to9 = promo.incrementalPrice8to9
+        self.incrementalPrice10Plus = promo.incrementalPrice10Plus
+        self.isActive = promo.isActive
+        self.sortOrder = promo.sortOrder
+        self.isDeleted = promo.isDeleted
+    }
+    
+    init(name: String, mode: PromoMode = .typeList, categoryId: UUID?, categoryName: String?, maxQuantity: Int = 7, tierPrices: [Int: Decimal] = [:], incrementalPrice8to9: Decimal? = nil, incrementalPrice10Plus: Decimal? = nil, isActive: Bool = true, sortOrder: Int = 0) {
+        self.id = UUID()
+        self.name = name
+        self.mode = mode
+        self.categoryId = categoryId
+        self.categoryName = categoryName
+        self.maxQuantity = maxQuantity
+        self.tierPrices = tierPrices
+        self.incrementalPrice8to9 = incrementalPrice8to9
+        self.incrementalPrice10Plus = incrementalPrice10Plus
+        self.isActive = isActive
+        self.sortOrder = sortOrder
+        self.isDeleted = false
+        self.isNew = true
+    }
+    
+    static func == (lhs: DraftPromo, rhs: DraftPromo) -> Bool {
+        return lhs.id == rhs.id &&
+               lhs.name == rhs.name &&
+               lhs.mode == rhs.mode &&
+               lhs.categoryId == rhs.categoryId &&
+               lhs.maxQuantity == rhs.maxQuantity &&
+               lhs.tierPrices == rhs.tierPrices &&
+               lhs.incrementalPrice8to9 == rhs.incrementalPrice8to9 &&
+               lhs.incrementalPrice10Plus == rhs.incrementalPrice10Plus &&
+               lhs.isActive == rhs.isActive &&
+               lhs.sortOrder == rhs.sortOrder &&
+               lhs.isDeleted == rhs.isDeleted
+        // Intentionally exclude isNew from comparison
+    }
+}

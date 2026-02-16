@@ -1,0 +1,1060 @@
+import SwiftUI
+import SwiftData
+
+enum OverrideTarget: Equatable {
+    case generalTotal
+    case categorySubtotal(categoryId: UUID)
+}
+
+struct PanelView: View {
+    @Bindable var event: Event
+    var onQuit: (() -> Void)?
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AuthService.self) private var authService
+    @Environment(\.dismiss) private var dismiss
+    
+    // POS State
+    @State private var cart: [UUID: Int] = [:] // ProductID : Quantity
+    @State private var currentCurrencyCode: String
+    @State private var note: String = ""
+    @State private var selectedTab = 0 // For category paging
+    
+    // Alerts
+    @State private var showingCheckoutSuccess = false
+    @State private var showingClearConfirmation = false
+    @State private var showingPaymentMethodSheet = false
+    @State private var selectedPaymentMethod: PaymentMethod = .cash
+    
+    // Manual Override State
+    @State private var overriddenTotal: Decimal? = nil
+    @State private var overriddenCategoryTotals: [UUID: Decimal] = [:]
+    @State private var showingOverrideSheet = false
+    @State private var overrideTarget: OverrideTarget? = nil
+    @State private var overrideInputText = ""
+    
+    init(event: Event, onQuit: (() -> Void)? = nil) {
+        self.event = event
+        self.onQuit = onQuit
+        // Use main currency or fallback to first enabled currency
+        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        _currentCurrencyCode = State(initialValue: mainCurrency?.code ?? event.currencyCode)
+    }
+    
+    var activeCategories: [Category] {
+        event.categories.filter { cat in
+            cat.isEnabled && event.products.contains(where: { $0.category == cat && $0.isActive && !$0.isDeleted })
+        }.sorted { $0.sortOrder < $1.sortOrder }
+    }
+    
+    var rate: Decimal {
+        // Find main currency
+        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        let mainCode = mainCurrency?.code ?? event.currencyCode
+        
+        if currentCurrencyCode == mainCode { return 1.0 }
+        
+        // Find selected currency and return its rate
+        return event.currencies.first(where: { $0.code == currentCurrencyCode })?.rate ?? 1.0
+    }
+    
+    var derivedTotal: Decimal {
+        // If general total is overridden, return that
+        if let overridden = overriddenTotal {
+            return overridden
+        }
+        
+        // Check for active combo promo first (works across all categories)
+        let activeComboPromo = event.promos.first(where: {
+            $0.isActive && !$0.isDeleted && $0.mode == .combo
+        })
+        
+        var comboTotal: Decimal = 0
+        var comboProductIds: Set<UUID> = []
+        
+        if let comboPromo = activeComboPromo {
+            // Build cart for combo products only
+            var comboCart: [UUID: Int] = [:]
+            for (productId, qty) in cart {
+                if qty > 0, comboPromo.comboProducts.contains(productId),
+                   let product = event.products.first(where: { $0.id == productId }),
+                   product.isPromo {
+                    comboCart[productId] = qty
+                    comboProductIds.insert(productId)
+                }
+            }
+            
+            comboTotal = calculateComboPrice(promo: comboPromo, cart: comboCart)
+        }
+        
+        // Calculate category totals (excluding products already in combo)
+        var sum: Decimal = comboTotal
+        for category in activeCategories {
+            let categorySum = categorySubtotal(for: category.id, excludeProducts: comboProductIds)
+            sum += categorySum
+        }
+        
+        // Handle products without categories if categories are disabled
+        if !event.areCategoriesEnabled {
+            for (id, qty) in cart {
+                if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                    sum += convertPrice(product.price) * Decimal(qty)
+                }
+            }
+        }
+        
+        return sum
+    }
+    
+    // Calculate subtotal for a specific category
+    func categorySubtotal(for categoryId: UUID, excludeProducts: Set<UUID> = []) -> Decimal {
+        // If this category has an override, return that
+        if let overridden = overriddenCategoryTotals[categoryId] {
+            return overridden
+        }
+        
+        // Check if there's an active Volume promo for this category
+        let activePromo = event.promos.first(where: {
+            $0.isActive &&
+            !$0.isDeleted &&
+            $0.mode == .typeList &&
+            $0.category?.id == categoryId
+        })
+        
+        // If there's a volume promo, calculate promo pricing
+        if let promo = activePromo {
+            // Volume mode
+            // Get all promo-eligible products (isPromo = true) in cart for this category
+            var promoEligibleQty = 0
+            var promoEligibleProducts: [(product: Product, qty: Int)] = []
+            var nonPromoSum: Decimal = 0
+            
+            for (productId, qty) in cart {
+                guard qty > 0,
+                      !excludeProducts.contains(productId),  // Skip combo products
+                      let product = event.products.first(where: { $0.id == productId }),
+                      product.category?.id == categoryId else { continue }
+                
+                if product.isPromo {
+                    promoEligibleQty += qty
+                    promoEligibleProducts.append((product, qty))
+                } else {
+                    // Non-promo products use regular pricing
+                    nonPromoSum += convertPrice(product.price) * Decimal(qty)
+                }
+            }
+            
+            
+            // Build product quantities map for star products
+            var productQuantities: [UUID: Int] = [:]
+            for (product, qty) in promoEligibleProducts {
+                productQuantities[product.id] = qty
+            }
+            
+            // Calculate promo price and convert to transaction currency
+            let promoPrice = calculatePromoPrice(promo: promo, quantity: promoEligibleQty, productQuantities: productQuantities)
+            let convertedPromoPrice = convertAndRoundPromoPrice(promoPrice)
+            
+            // If promo price is 0 (e.g., only 1 item), fall back to regular pricing for promo-eligible products
+            if convertedPromoPrice == 0 && promoEligibleQty > 0 {
+                var regularPromoSum: Decimal = 0
+                for (product, qty) in promoEligibleProducts {
+                    regularPromoSum += convertPrice(product.price) * Decimal(qty)
+                }
+                return regularPromoSum + nonPromoSum
+            }
+            
+            return convertedPromoPrice + nonPromoSum
+        }
+        
+        // No promo - calculate regular pricing
+        var sum: Decimal = 0
+        for (productId, qty) in cart {
+            if qty > 0,
+               let product = event.products.first(where: { $0.id == productId }),
+               product.category?.id == categoryId {
+                sum += convertPrice(product.price) * Decimal(qty)
+            }
+        }
+        return sum
+    }
+    
+    // Calculate promo price based on quantity and promo tier/incremental pricing
+    // Includes star product surcharges
+    private func calculatePromoPrice(promo: Promo, quantity: Int, productQuantities: [UUID: Int] = [:]) -> Decimal {
+        guard quantity >= 2 else {
+            // Less than 2 items - no promo applicable, return 0
+            return 0
+        }
+        
+        var basePrice: Decimal = 0
+        
+        // 1. Check tier prices first (2 to maxQuantity)
+        if quantity <= promo.maxQuantity, let tierPrice = promo.tierPrices[quantity] {
+            basePrice = tierPrice
+        }
+        // 2. For quantities from (maxQuantity + 1) to 9
+        else if quantity <= 9 {
+            guard let incrementalPrice = promo.incrementalPrice8to9,
+                  let maxTierPrice = promo.tierPrices[promo.maxQuantity] else {
+                return 0
+            }
+            let extraItems = quantity - promo.maxQuantity
+            basePrice = maxTierPrice + (incrementalPrice * Decimal(extraItems))
+        }
+        // 3. For quantities 10+
+        else if let incrementalPrice8to9 = promo.incrementalPrice8to9,
+                let incrementalPrice10Plus = promo.incrementalPrice10Plus,
+                let maxTierPrice = promo.tierPrices[promo.maxQuantity] {
+            // Calculate price up to 9 items
+            let priceAt9 = maxTierPrice + (incrementalPrice8to9 * Decimal(9 - promo.maxQuantity))
+            // Add incremental for items beyond 9
+            let extraItemsFrom10 = quantity - 9
+            basePrice = priceAt9 + (incrementalPrice10Plus * Decimal(extraItemsFrom10))
+        } else {
+            return 0
+        }
+        
+        // Add star product surcharges
+        var starSurcharge: Decimal = 0
+        for (productId, extraCost) in promo.starProducts {
+            if let qty = productQuantities[productId], qty > 0 {
+                starSurcharge += extraCost * Decimal(qty)
+            }
+        }
+        
+        return basePrice + starSurcharge
+    }
+    
+    // Calculate combo promo price
+    private func calculateComboPrice(promo: Promo, cart: [UUID: Int]) -> Decimal {
+        guard !promo.comboProducts.isEmpty,
+              let comboPrice = promo.comboPrice else { return 0 }
+        
+        // Find minimum quantity across combo products in cart
+        var minQty = Int.max
+        for productId in promo.comboProducts {
+            let qty = cart[productId] ?? 0
+            if qty == 0 { return 0 }  // Missing product, no combo
+            minQty = min(minQty, qty)
+        }
+        
+        guard minQty > 0 && minQty < Int.max else { return 0 }
+        
+        // Price = (number of combos × combo price) + leftover items at natural price
+        var total = Decimal(minQty) * comboPrice
+        
+        // Add leftover items
+        for productId in promo.comboProducts {
+            let qty = cart[productId] ?? 0
+            let leftover = qty - minQty
+            
+            if leftover > 0,
+               let product = event.products.first(where: { $0.id == productId }) {
+                total += convertPrice(product.price) * Decimal(leftover)
+            }
+        }
+        
+        return total
+    }
+    
+    // Calculate prorated unit price for a product
+    func proratedUnitPrice(for productId: UUID, quantity: Int) -> Decimal {
+        guard let product = event.products.first(where: { $0.id == productId }) else {
+            return 0
+        }
+        
+        let originalPrice = convertPrice(product.price)
+        
+        // Check if general total is overridden
+        if let overriddenGeneralTotal = overriddenTotal {
+            // Calculate original total
+            let originalTotal = calculateOriginalTotal()
+            guard originalTotal > 0 else { return originalPrice }
+            
+            // Calculate percentage of this product in original total
+            let productOriginalSubtotal = originalPrice * Decimal(quantity)
+            let percentage = productOriginalSubtotal / originalTotal
+            
+            // Apply percentage to overridden total
+            let proratedSubtotal = overriddenGeneralTotal * percentage
+            return proratedSubtotal / Decimal(quantity)
+        }
+        
+        // Check if this product's category has an override
+        if let categoryId = product.category?.id,
+           let overriddenCategoryTotal = overriddenCategoryTotals[categoryId] {
+            // Calculate original category total
+            let originalCategoryTotal = calculateOriginalCategoryTotal(categoryId: categoryId)
+            guard originalCategoryTotal > 0 else { return originalPrice }
+            
+            // Calculate percentage of this product in category
+            let productOriginalSubtotal = originalPrice * Decimal(quantity)
+            let percentage = productOriginalSubtotal / originalCategoryTotal
+            
+            // Apply percentage to overridden category total
+            let proratedSubtotal = overriddenCategoryTotal * percentage
+            return proratedSubtotal / Decimal(quantity)
+        }
+        
+        // Check if this product's category has an active promo
+        if let categoryId = product.category?.id,
+           product.isPromo {  // Only prorate if product is promo-eligible
+            let activePromo = event.promos.first(where: {
+                $0.isActive &&
+                !$0.isDeleted &&
+                $0.mode == .typeList &&
+                $0.category?.id == categoryId
+            })
+            
+            if let promo = activePromo {
+                // Calculate total promo-eligible quantity and products
+                var promoEligibleQty = 0
+                var naturalCategoryTotal: Decimal = 0
+                
+                for (productId, qty) in cart {
+                    guard qty > 0,
+                          let p = event.products.first(where: { $0.id == productId }),
+                          p.category?.id == categoryId else { continue }
+                    
+                    if p.isPromo {
+                        promoEligibleQty += qty
+                        naturalCategoryTotal += convertPrice(p.price) * Decimal(qty)
+                    }
+                }
+                
+                
+                // Build product quantities map for star products
+                var productQuantities: [UUID: Int] = [:]
+                for (productId, qty) in cart {
+                    guard qty > 0,
+                          let p = event.products.first(where: { $0.id == productId }),
+                          p.category?.id == categoryId,
+                          p.isPromo else { continue }
+                    productQuantities[productId] = qty
+                }
+                
+                // Get promo price for this quantity and convert to transaction currency
+                let promoPrice = calculatePromoPrice(promo: promo, quantity: promoEligibleQty, productQuantities: productQuantities)
+                let convertedPromoPrice = convertAndRoundPromoPrice(promoPrice)
+                
+                guard convertedPromoPrice > 0, naturalCategoryTotal > 0 else {
+                    return originalPrice
+                }
+                
+                // Calculate this product's percentage of natural category total
+                let productNaturalSubtotal = originalPrice * Decimal(quantity)
+                let percentage = productNaturalSubtotal / naturalCategoryTotal
+                
+                // Apply percentage to converted promo price
+                let proratedSubtotal = convertedPromoPrice * percentage
+                return proratedSubtotal / Decimal(quantity)
+            }
+        }
+        
+        // No override or promo, return original price
+        return originalPrice
+    }
+    
+    // Calculate original total without any overrides
+    func calculateOriginalTotal() -> Decimal {
+        var sum: Decimal = 0
+        for (id, qty) in cart {
+            if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                sum += convertPrice(product.price) * Decimal(qty)
+            }
+        }
+        return sum
+    }
+    
+    // Calculate original category total without override
+    func calculateOriginalCategoryTotal(categoryId: UUID) -> Decimal {
+        var sum: Decimal = 0
+        for (productId, qty) in cart {
+            if qty > 0,
+               let product = event.products.first(where: { $0.id == productId }),
+               product.category?.id == categoryId {
+                sum += convertPrice(product.price) * Decimal(qty)
+            }
+        }
+        return sum
+    }
+    
+    // Helper to convert and optionally round up prices
+    // Only rounds when currency conversion happens (rate != 1.0)
+    private func convertPrice(_ price: Decimal) -> Decimal {
+        let converted = price * rate
+        // Only round if actually converting currency AND round-up is enabled
+        if rate != 1.0 && event.isCurrencyRoundUp {
+            return Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
+        }
+        return converted
+    }
+    
+    // Helper to convert and optionally round up promo prices
+    // Always rounds promo prices when conversion happens or round-up is enabled
+    private func convertAndRoundPromoPrice(_ price: Decimal) -> Decimal {
+        let converted = price * rate
+        // Round if converting currency OR if round-up is enabled (promo prices always round when enabled)
+        if event.isCurrencyRoundUp && rate != 1.0 {
+            return Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
+        }
+        return converted
+    }
+    
+    var availablePaymentMethods: [PaymentMethodOption] {
+        // Decode payment methods from JSON Data
+        guard let data = event.paymentMethodsData,
+              let methods = try? JSONDecoder().decode([PaymentMethodOption].self, from: data) else {
+            return []
+        }
+        
+        // Find current currency UUID
+        guard let currentCurrency = event.currencies.first(where: { $0.code == currentCurrencyCode }) else {
+            return []
+        }
+        
+        // Filter enabled payment methods that support this currency
+        return methods.filter { method in
+            method.isEnabled && method.enabledCurrencies.contains(currentCurrency.id)
+        }
+    }
+    
+    // Available Currencies (Only enabled ones from new model)
+    var availableCurrencies: [String] {
+        // Use new currencies model if available, fallback to old model for migration
+        if !event.currencies.isEmpty {
+            return event.currencies
+                .filter { $0.isEnabled }
+                .sorted { $0.sortOrder < $1.sortOrder }
+                .map { $0.code }
+        } else {
+            // Fallback to old model
+            var codes = Set([event.currencyCode])
+            event.rates.forEach { codes.insert($0.currencyCode) }
+            return Array(codes).sorted()
+        }
+    }
+    
+    var body: some View {
+        return VStack(spacing: 0) {
+            // 1. Top Bar
+            EventInfoHeader(
+                event: event,
+                userFullName: authService.currentUser?.fullName ?? "Operator",
+                onQuit: onQuit
+            )
+            .zIndex(1)
+            
+            // 2. Table Headers
+            PanelTableHeaderView()
+            
+            // 3. Products Pager
+            if !event.areCategoriesEnabled {
+                // Categories disabled: Show all products with default background color
+                ProductListView(
+                    category: nil,
+                    products: event.products.filter { $0.isActive && !$0.isDeleted }.sorted { $0.sortOrder < $1.sortOrder },
+                    cart: $cart,
+                    rate: rate,
+                    currencyCode: currentCurrencyCode,
+                    event: event,
+                    defaultBackgroundColor: event.defaultProductBackgroundColor
+                )
+            } else if activeCategories.isEmpty {
+                ContentUnavailableView("No Active Products", systemImage: "tray")
+            } else {
+                TabView(selection: $selectedTab) {
+                    ForEach(Array(activeCategories.enumerated()), id: \.element.id) { index, category in
+                        ProductListView(
+                            category: category,
+                            products: event.products.filter { $0.category == category && $0.isActive && !$0.isDeleted }.sorted { $0.sortOrder < $1.sortOrder },
+                            cart: $cart,
+                            rate: rate,
+                            currencyCode: currentCurrencyCode,
+                            event: event
+                        )
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut, value: selectedTab)
+            }
+            
+            // 4. Footer
+            PanelFooterView(
+                activeCategories: event.areCategoriesEnabled ? activeCategories : [],
+                event: event,
+                currentCurrencyCode: $currentCurrencyCode,
+                derivedTotal: derivedTotal,
+                note: $note,
+                categories: event.categories,
+                products: event.products,
+                cart: cart,
+                rate: rate,
+                overriddenTotal: $overriddenTotal,
+                overriddenCategoryTotals: $overriddenCategoryTotals,
+                showingOverrideSheet: $showingOverrideSheet,
+                overrideTarget: $overrideTarget,
+                overrideInputText: $overrideInputText,
+                calculateOriginalTotal: calculateOriginalTotal,
+                calculateOriginalCategoryTotal: calculateOriginalCategoryTotal,
+                categorySubtotal: categorySubtotal,
+                onClear: {
+                    withAnimation {
+                        showingClearConfirmation = true
+                    }
+                },
+                onCheckout: {
+                    showingPaymentMethodSheet = true
+                }
+            )
+        }
+        .background(Color(UIColor.systemGray6))
+        .alert("Clear Cart?", isPresented: $showingClearConfirmation) {
+            Button("Clear", role: .destructive) {
+                cart.removeAll()
+                note = ""
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+        .alert("Transaction Saved", isPresented: $showingCheckoutSuccess) {
+            Button("OK", role: .cancel) { }
+        }
+        .sheet(isPresented: $showingPaymentMethodSheet) {
+            PaymentMethodSelectionSheet(
+                availableMethods: availablePaymentMethods,
+                currentCurrency: currentCurrencyCode,
+                derivedTotal: derivedTotal,
+                onSelect: { selectedMethod in
+                    selectedPaymentMethod = selectedMethod
+                    showingPaymentMethodSheet = false
+                    processCheckout()
+                },
+                onCancel: {
+                    showingPaymentMethodSheet = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingOverrideSheet) {
+            let symbol = event.currencies.first(where: { $0.code == currentCurrencyCode })?.symbol ?? currentCurrencyCode
+            OverrideInputSheet(
+                target: overrideTarget,
+                currentTotal: derivedTotal,
+                currencySymbol: symbol,
+                inputText: $overrideInputText,
+                onApply: applyOverride,
+                onClear: clearOverride,
+                onDismiss: { showingOverrideSheet = false }
+            )
+            .presentationDetents([.height(250)])
+        }
+    }
+    
+    func processCheckout() {
+        guard derivedTotal > 0 else { return }
+        
+        let transaction = Transaction(
+            totalAmount: derivedTotal,
+            currencyCode: currentCurrencyCode,
+            note: note.isEmpty ? nil : note,
+            paymentMethod: selectedPaymentMethod
+        )
+        
+        for (id, qty) in cart {
+            if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                // Use prorated price if there's an override, otherwise use converted price
+                let finalPrice = proratedUnitPrice(for: id, quantity: qty)
+                let line = LineItem(
+                    productName: product.name,
+                    quantity: qty,
+                    unitPrice: finalPrice,
+                    subgroup: product.subgroup
+                )
+                line.product = product
+                transaction.lineItems.append(line)
+            }
+        }
+        
+        event.transactions.append(transaction)
+        cart.removeAll()
+        note = ""
+        
+        // Clear overrides after checkout
+        overriddenTotal = nil
+        overriddenCategoryTotals.removeAll()
+        
+        showingCheckoutSuccess = true
+    }
+    
+    func applyOverride() {
+        guard let target = overrideTarget,
+              let value = Decimal(string: overrideInputText.replacingOccurrences(of: ",", with: "")),
+              value > 0 else {
+            showingOverrideSheet = false
+            return
+        }
+        
+        switch target {
+        case .generalTotal:
+            overriddenTotal = value
+            // Clear category overrides when general total is set
+            overriddenCategoryTotals.removeAll()
+        case .categorySubtotal(let categoryId):
+            overriddenCategoryTotals[categoryId] = value
+            // Clear general override if any category is overridden
+            overriddenTotal = nil
+        }
+        
+        showingOverrideSheet = false
+    }
+    
+    func clearOverride() {
+        guard let target = overrideTarget else {
+            showingOverrideSheet = false
+            return
+        }
+        
+        switch target {
+        case .generalTotal:
+            overriddenTotal = nil
+        case .categorySubtotal(let categoryId):
+            overriddenCategoryTotals.removeValue(forKey: categoryId)
+        }
+        
+        showingOverrideSheet = false
+    }
+}
+
+// MARK: - Subviews
+
+struct PanelTableHeaderView: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            Text("PRODUCT")
+                //.frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: 120, alignment: .center)
+                .padding(.leading, 10)
+            Text("PRICE")
+                .frame(width: 80, alignment: .center)
+            Text("QTY")
+                .frame(width: 50, alignment: .center)
+                .padding(.leading, 10)
+            Text("TOTAL")
+                .frame(width: 80, alignment: .center)
+            Text("ACTIONS")
+                .frame(width: 85, alignment: .leading)
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Color.gray)
+        .padding(.vertical, 10)
+        .background(Color(UIColor.systemGray6))
+    }
+}
+
+struct PanelFooterView: View {
+    let activeCategories: [Category]
+    @Bindable var event: Event
+    @Binding var currentCurrencyCode: String
+    let derivedTotal: Decimal
+    @Binding var note: String
+    
+    let categories: [Category]
+    let products: [Product]
+    let cart: [UUID: Int]
+    let rate: Decimal
+    
+    // Override state
+    @Binding var overriddenTotal: Decimal?
+    @Binding var overriddenCategoryTotals: [UUID: Decimal]
+    @Binding var showingOverrideSheet: Bool
+    @Binding var overrideTarget: OverrideTarget?
+    @Binding var overrideInputText: String
+    let calculateOriginalTotal: () -> Decimal
+    let calculateOriginalCategoryTotal: (UUID) -> Decimal
+    let categorySubtotal: (UUID) -> Decimal
+    
+    let onClear: () -> Void
+    let onCheckout: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            if !activeCategories.isEmpty {
+                // MULTI-CATEGORY LAYOUT: 2-column with subtotals
+                // Top section: 2-column layout
+                HStack(alignment: .top, spacing: 12) {
+                // LEFT COLUMN: Subtotals + Total stacked vertically
+                VStack(alignment: .leading, spacing: 8) {
+                    // Subtotals
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(activeCategories) { cat in
+                                let catTotal = categorySubtotal(cat.id)
+                                let originalCatTotal = calculateOriginalCategoryTotal(cat.id)
+                                let isOverridden = overriddenCategoryTotals[cat.id] != nil
+                                
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(cat.name) Subtotal:")
+                                            .font(.system(size: 15))
+                                        if isOverridden {
+                                            Text(currencySymbol(for: currentCurrencyCode) + originalCatTotal.formatted(.number.precision(.fractionLength(2))))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .strikethrough()
+                                        }
+                                    }
+                                    Spacer()
+                                    Text(currencySymbol(for: currentCurrencyCode) + catTotal.formatted(.number.precision(.fractionLength(2))))
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundStyle(isOverridden ? .green : .primary)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: cat.hexColor))
+                                .cornerRadius(8)
+                                .onTapGesture {
+                                    overrideTarget = .categorySubtotal(categoryId: cat.id)
+                                    overrideInputText = catTotal.formatted(.number.precision(.fractionLength(2)))
+                                    showingOverrideSheet = true
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 124)
+                    
+                    // Total
+                    let isGeneralOverridden = overriddenTotal != nil
+                    let originalGeneralTotal = calculateOriginalTotal()
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Total:")
+                                .font(.system(size: 24, weight: .bold))
+                            Spacer()
+                            Text(currencySymbol(for: currentCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(isGeneralOverridden ? .green : .primary)
+                        }
+                        if isGeneralOverridden {
+                            HStack {
+                                Spacer()
+                                Text(currencySymbol(for: currentCurrencyCode) + originalGeneralTotal.formatted(.number.precision(.fractionLength(2))))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .strikethrough()
+                            }
+                        }
+                    }
+                    .onTapGesture {
+                        overrideTarget = .generalTotal
+                        overrideInputText = derivedTotal.formatted(.number.precision(.fractionLength(2)))
+                        showingOverrideSheet = true
+                    }
+                }
+                
+                // RIGHT COLUMN: Currency buttons
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        ForEach(event.currencies.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }, id: \.id) { currency in
+                            Button(action: { currentCurrencyCode = currency.code }) {
+                                Text(currency.symbol + " " + currency.code)
+                                    .font(.system(size: 18, weight: .bold))
+                                    .frame(width: 90, height: 50)
+                                    .background(currentCurrencyCode == currency.code ? Color.blue : Color(UIColor.systemGray5))
+                                    .foregroundStyle(currentCurrencyCode == currency.code ? .white : .primary)
+                                    .cornerRadius(8)
+                            }
+                        }
+                    }
+                }
+                .frame(width: 85)
+                .frame(maxHeight: min(CGFloat(event.currencies.filter { $0.isEnabled }.count), 3) * 58)
+            }
+            } else {
+               // SINGLE-CATEGORY LAYOUT: Simpler, no subtotals
+                // Total - full width
+                let isGeneralOverridden = overriddenTotal != nil
+                let originalGeneralTotal = calculateOriginalTotal()
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Total:")
+                            .font(.system(size: 24, weight: .bold))
+                        Spacer()
+                        Text(currencySymbol(for: currentCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(isGeneralOverridden ? .green : .primary)
+                    }
+                    if isGeneralOverridden {
+                        HStack {
+                            Spacer()
+                            Text(currencySymbol(for: currentCurrencyCode) + originalGeneralTotal.formatted(.number.precision(.fractionLength(2))))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .strikethrough()
+                        }
+                    }
+                }
+                .onTapGesture {
+                    overrideTarget = .generalTotal
+                    overrideInputText = derivedTotal.formatted(.number.precision(.fractionLength(2)))
+                    showingOverrideSheet = true
+                }
+                
+                // Currency buttons - horizontal scrolling
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(event.currencies.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }, id: \.id) { currency in
+                            Button(action: { currentCurrencyCode = currency.code }) {
+                                HStack(spacing: 4) {
+                                    Text(currency.symbol)
+                                        .font(.system(size: 18, weight: .bold))
+                                    Text(currency.code)
+                                        .font(.system(size: 18, weight: .bold))
+                                }
+                                .frame(width: 118, height: 40)
+                                .background(currentCurrencyCode == currency.code ? Color.blue : Color.gray.opacity(0.2))
+                                .foregroundStyle(currentCurrencyCode == currency.code ? .white : .primary)
+                                .cornerRadius(12)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Notes field - full width
+            HStack(spacing: 8) {
+                Image(systemName: "pencil")
+                    .foregroundStyle(Color.gray.opacity(0.5))
+                    .font(.system(size: 14))
+                TextField("Notes (optional)", text: $note)
+                    .font(.system(size: 15))
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+            )
+            
+            // Action buttons - Clear 30%, Pay Now 70%
+            GeometryReader { geometry in
+                HStack(spacing: 10) {
+                    Button(action: onClear) {
+                        Text("Clear")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: geometry.size.width * 0.35 - 5, height: 50)
+                            .background(derivedTotal > 0 ? Color.red : Color.gray)
+                            .foregroundStyle(.white)
+                            .cornerRadius(12)
+                    }
+                    .disabled(derivedTotal <= 0)
+                    
+                    Button(action: onCheckout) {
+                        Text("Pay Now")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: geometry.size.width * 0.65 - 5, height: 50)
+                            .background(derivedTotal > 0 ? Color.green : Color.gray)
+                            .foregroundStyle(.white)
+                            .cornerRadius(12)
+                    }
+                    .disabled(derivedTotal <= 0)
+                }
+            }
+            .frame(height: 50)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+        .background(Color.white)
+    }
+    
+    func calculateSubtotal(for category: Category) -> Decimal {
+        var sum: Decimal = 0
+        let categoryProducts = products.filter { $0.category == category }
+        for prod in categoryProducts {
+            if let qty = cart[prod.id], qty > 0 {
+                sum += (prod.price * Decimal(qty))
+            }
+        }
+        let converted = sum * rate
+        return event.isCurrencyRoundUp ? Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue)) : converted
+    }
+    
+    func currencySymbol(for code: String) -> String {
+        // Use currency model symbol if available, fallback to currency code
+        return event.currencies.first(where: { $0.code == code })?.symbol ?? code
+    }
+}
+
+struct ProductListView: View {
+    let category: Category?
+    let products: [Product]
+    @Binding var cart: [UUID: Int]
+    let rate: Decimal
+    let currencyCode: String
+    let event: Event
+    var defaultBackgroundColor: String? = nil // Optional default color when category is nil
+    
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(products) { product in
+                    let qty = cart[product.id] ?? 0
+                    let baseConverted = product.price * rate
+                    // Only round if actually converting currency AND round-up is enabled
+                    let convertedPrice = (rate != 1.0 && event.isCurrencyRoundUp) 
+                        ? Decimal(ceil(NSDecimalNumber(decimal: baseConverted).doubleValue)) 
+                        : baseConverted
+                    let rowTotal = convertedPrice * Decimal(qty)
+                    
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            Text(product.name)
+                                .font(.system(size: 16))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 12)
+                            
+                            Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
+                                .font(.system(size: 16))
+                                .frame(width: 80, alignment: .trailing)
+                            
+                            Text("\(qty)")
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(width: 50, alignment: .trailing)
+                            
+                            Text(currencySymbol(for: currencyCode) + rowTotal.formatted(.number.precision(.fractionLength(2))))
+                                .font(.system(size: 16, weight: .bold))
+                                .frame(width: 80, alignment: .trailing)
+                            
+                            HStack(spacing: 6) {
+                                Button {
+                                    updateCart(id: product.id, delta: -1)
+                                } label: {
+                                    Image(systemName: "minus")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .frame(width: 32, height: 32)
+                                        .background(Color.red)
+                                        .foregroundStyle(.white)
+                                        .clipShape(Circle())
+                                }
+                                
+                                Button {
+                                    updateCart(id: product.id, delta: 1)
+                                } label: {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .frame(width: 32, height: 32)
+                                        .background(Color.green)
+                                        .foregroundStyle(.white)
+                                        .clipShape(Circle())
+                                }
+                            }
+                            .frame(width: 85, alignment: .center)
+                        }
+                        .frame(height: 50)
+                        
+                        Divider()
+                            .background(Color.white.opacity(0.3))
+                    }
+                }
+            }
+            .background(
+                category.map { Color(hex: $0.hexColor) } ?? Color(hex: defaultBackgroundColor ?? "#FFFFFF")
+            )
+        }
+    }
+    
+    func updateCart(id: UUID, delta: Int) {
+        let current = cart[id] ?? 0
+        let new = current + delta
+        if new >= 0 {
+            cart[id] = new
+        }
+    }
+    
+    func currencySymbol(for code: String) -> String {
+        // Use currency model symbol if available, fallback to currency code
+        return event.currencies.first(where: { $0.code == code })?.symbol ?? code
+    }
+}
+
+
+// MARK: - Override Input Sheet
+struct OverrideInputSheet: View {
+    let target: OverrideTarget?
+    let currentTotal: Decimal
+    let currencySymbol: String
+    @Binding var inputText: String
+    let onApply: () -> Void
+    let onClear: () -> Void
+    let onDismiss: () -> Void
+    
+    @FocusState private var isInputFocused: Bool
+    
+    var title: String {
+        guard let target = target else { return "Override Total" }
+        switch target {
+        case .generalTotal:
+            return "Override Total"
+        case .categorySubtotal:
+            return "Override Category Subtotal"
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Title
+            Text(title)
+                .font(.title2.weight(.semibold))
+                .padding(.top)
+            
+            // Current value
+            Text("Current: \(currencySymbol)\(currentTotal.formatted(.number.precision(.fractionLength(2))))")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            
+            // Input field
+            HStack {
+                Text(currencySymbol)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                TextField("New amount", text: $inputText)
+                    .font(.title3)
+                    .keyboardType(.decimalPad)
+                    .focused($isInputFocused)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .padding(.horizontal)
+            
+            // Buttons
+            HStack(spacing: 12) {
+                Button(action: onClear) {
+                    Text("Clear Override")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.red.opacity(0.1))
+                        .foregroundStyle(.red)
+                        .cornerRadius(10)
+                }
+                
+                Button(action: onApply) {
+                    Text("Apply")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.green)
+                        .foregroundStyle(.white)
+                        .cornerRadius(10)
+                }
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+        .onAppear {
+            isInputFocused = true
+        }
+    }
+}
