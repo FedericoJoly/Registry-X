@@ -304,7 +304,7 @@ class ExcelExportService {
         xml += "<row r=\"1\">"
         let headers = ["Product", "Subgroup", "Qty Sold", "Total Amount"]
         for (index, header) in headers.enumerated() {
-            xml += "<c r=\"\(columnLetter(index))1\" t=\"str\" s=\"1\"><v>\(xmlEscape(header))</v></c>"
+            xml += "<c r=\"\(columnLetter(index))1\" t=\"inlineStr\" s=\"1\"><is><t>\(xmlEscape(header))</t></is></c>"
         }
         xml += "</row>\n"
         
@@ -364,8 +364,8 @@ class ExcelExportService {
         for (index, (_, stats)) in sortedProducts.enumerated() {
             let rowNum = index + 2
             xml += "<row r=\"\(rowNum)\">"
-            xml += "<c r=\"A\(rowNum)\" t=\"str\"><v>\(xmlEscape(stats.name))</v></c>"
-            xml += "<c r=\"B\(rowNum)\" t=\"str\"><v>\(xmlEscape(stats.subgroup ?? ""))</v></c>"
+            xml += "<c r=\"A\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(stats.name))</t></is></c>"
+            xml += "<c r=\"B\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(stats.subgroup ?? ""))</t></is></c>"
             xml += "<c r=\"C\(rowNum)\"><v>\(stats.quantity)</v></c>"
             xml += "<c r=\"D\(rowNum)\"><v>\(formatDecimalXML(stats.totalAmount))</v></c>"
             xml += "</row>\n"
@@ -375,9 +375,9 @@ class ExcelExportService {
         // Total row
         let totalRow = sortedProducts.count + 3
         xml += "<row r=\"\(totalRow)\">"
-        xml += "<c r=\"A\(totalRow)\" t=\"str\"><v>TOTAL</v></c>"
-        xml += "<c r=\"B\(totalRow)\" t=\"str\"><v></v></c>"
-        xml += "<c r=\"C\(totalRow)\" t=\"str\"><v></v></c>"
+        xml += "<c r=\"A\(totalRow)\" t=\"inlineStr\"><is><t>TOTAL</t></is></c>"
+        xml += "<c r=\"B\(totalRow)\" t=\"inlineStr\"><is><t></t></is></c>"
+        xml += "<c r=\"C\(totalRow)\" t=\"inlineStr\"><is><t></t></is></c>"
         xml += "<c r=\"D\(totalRow)\"><v>\(formatDecimalXML(grandTotal))</v></c>"
         xml += "</row>\n"
         
@@ -408,7 +408,7 @@ class ExcelExportService {
         xml += "<row r=\"1\">"
         let headers = ["Currency", "Payment Method", "Qty of Transactions", "Total Amount"]
         for (index, header) in headers.enumerated() {
-            xml += "<c r=\"\(columnLetter(index))1\" t=\"str\" s=\"1\"><v>\(xmlEscape(header))</v></c>"
+            xml += "<c r=\"\(columnLetter(index))1\" t=\"inlineStr\" s=\"1\"><is><t>\(xmlEscape(header))</t></is></c>"
         }
         xml += "</row>\n"
         
@@ -444,8 +444,8 @@ class ExcelExportService {
         for (index, (_, stat)) in sortedStats.enumerated() {
             let rowNum = index + 2
             xml += "<row r=\"\(rowNum)\">"
-            xml += "<c r=\"A\(rowNum)\" t=\"str\"><v>\(stat.currency)</v></c>"
-            xml += "<c r=\"B\(rowNum)\" t=\"str\"><v>\(stat.paymentMethod)</v></c>"
+            xml += "<c r=\"A\(rowNum)\" t=\"inlineStr\"><is><t>\(stat.currency)</t></is></c>"
+            xml += "<c r=\"B\(rowNum)\" t=\"inlineStr\"><is><t>\(stat.paymentMethod)</t></is></c>"
             xml += "<c r=\"C\(rowNum)\"><v>\(stat.count)</v></c>"
             xml += "<c r=\"D\(rowNum)\"><v>\(formatDecimalXML(stat.total))</v></c>"
             xml += "</row>\n"
@@ -477,14 +477,14 @@ class ExcelExportService {
         var rowNum = 1
         
         // Section 1: By Type (Categories)
-        xml += "<row r=\"\(rowNum)\"><c r=\"A\(rowNum)\" t=\"str\" s=\"1\"><v>BY TYPE</v></c></row>\n"
+        xml += "<row r=\"\(rowNum)\"><c r=\"A\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>BY TYPE</t></is></c></row>\n"
         rowNum += 1
         
         // Header row for categories
         xml += "<row r=\"\(rowNum)\">"
-        xml += "<c r=\"A\(rowNum)\" t=\"str\" s=\"1\"><v>Category</v></c>"
-        xml += "<c r=\"B\(rowNum)\" t=\"str\" s=\"1\"><v>Total Units</v></c>"
-        xml += "<c r=\"C\(rowNum)\" t=\"str\" s=\"1\"><v>Total Amount</v></c>"
+        xml += "<c r=\"A\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>Category</t></is></c>"
+        xml += "<c r=\"B\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>Total Units</t></is></c>"
+        xml += "<c r=\"C\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>Total Amount</t></is></c>"
         xml += "</row>\n"
         rowNum += 1
         
@@ -511,7 +511,7 @@ class ExcelExportService {
         
         for (_, stat) in sortedCategories {
             xml += "<row r=\"\(rowNum)\">"
-            xml += "<c r=\"A\(rowNum)\" t=\"str\"><v>\(xmlEscape(stat.category.name))</v></c>"
+            xml += "<c r=\"A\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(stat.category.name))</t></is></c>"
             xml += "<c r=\"B\(rowNum)\"><v>\(stat.units)</v></c>"
             xml += "<c r=\"C\(rowNum)\"><v>\(formatDecimalXML(stat.total))</v></c>"
             xml += "</row>\n"
@@ -522,14 +522,14 @@ class ExcelExportService {
         rowNum += 1
         
         // Section 2: By Subgroup
-        xml += "<row r=\"\(rowNum)\"><c r=\"A\(rowNum)\" t=\"str\" s=\"1\"><v>BY SUBGROUP</v></c></row>\n"
+        xml += "<row r=\"\(rowNum)\"><c r=\"A\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>BY SUBGROUP</t></is></c></row>\n"
         rowNum += 1
         
         // Header row for subgroups
         xml += "<row r=\"\(rowNum)\">"
-        xml += "<c r=\"A\(rowNum)\" t=\"str\" s=\"1\"><v>Subgroup</v></c>"
-        xml += "<c r=\"B\(rowNum)\" t=\"str\" s=\"1\"><v>Total Units</v></c>"
-        xml += "<c r=\"C\(rowNum)\" t=\"str\" s=\"1\"><v>Total Amount</v></c>"
+        xml += "<c r=\"A\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>Subgroup</t></is></c>"
+        xml += "<c r=\"B\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>Total Units</t></is></c>"
+        xml += "<c r=\"C\(rowNum)\" t=\"inlineStr\" s=\"1\"><is><t>Total Amount</t></is></c>"
         xml += "</row>\n"
         rowNum += 1
         
@@ -556,7 +556,7 @@ class ExcelExportService {
         
         for (subgroup, stat) in sortedSubgroups {
             xml += "<row r=\"\(rowNum)\">"
-            xml += "<c r=\"A\(rowNum)\" t=\"str\"><v>\(xmlEscape(subgroup))</v></c>"
+            xml += "<c r=\"A\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(subgroup))</t></is></c>"
             xml += "<c r=\"B\(rowNum)\"><v>\(stat.units)</v></c>"
             xml += "<c r=\"C\(rowNum)\"><v>\(formatDecimalXML(stat.total))</v></c>"
             xml += "</row>\n"
