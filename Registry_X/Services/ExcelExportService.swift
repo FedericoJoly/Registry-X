@@ -95,11 +95,10 @@ class ExcelExportService {
         """
         try workbookRels.write(to: xlRelsDir.appendingPathComponent("workbook.xml.rels"), atomically: true, encoding: .utf8)
         
-        // xl/styles.xml - minimal required styles
+        // xl/styles.xml - properly structured styles
         let styles = """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-            <numFmts count="0"/>
             <fonts count="2">
                 <font>
                     <sz val="11"/>
@@ -135,6 +134,9 @@ class ExcelExportService {
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
             </cellXfs>
+            <cellStyles count="1">
+                <cellStyle name="Normal" xfId="0" builtinId="0"/>
+            </cellStyles>
         </styleSheet>
         """
         try styles.write(to: xlDir.appendingPathComponent("styles.xml"), atomically: true, encoding: .utf8)
