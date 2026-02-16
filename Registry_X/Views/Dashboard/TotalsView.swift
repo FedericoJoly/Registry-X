@@ -109,10 +109,11 @@ struct TotalsView: View {
         
         for transaction in allTransactions {
             for item in transaction.lineItems {
-                // Handle deleted products by looking up by name
-                let category = item.product?.category ?? event.products.first(where: { 
+                // ALWAYS look up by name to avoid invalidated SwiftData references
+                let product = event.products.first(where: { 
                     $0.name == item.productName && !$0.isDeleted 
-                })?.category
+                })
+                let category = product?.category
                 
                 if let category = category {
                     let subtotalInMain = convertToMainCurrency(item.subtotal, from: transaction.currencyCode)
@@ -184,11 +185,11 @@ struct TotalsView: View {
         for transaction in allTransactions {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
-                    // Handle deleted products by looking up by name
-                    let category = item.product?.category ?? event.products.first(where: { 
+                    // ALWAYS look up by name to avoid invalidated SwiftData references
+                    let product = event.products.first(where: { 
                         $0.name == item.productName && !$0.isDeleted 
-                    })?.category
-                    productDict[item.productName] = (category, [])
+                    })
+                    productDict[item.productName] = (product?.category, [])
                 }
                 productDict[item.productName]?.items.append((item, transaction.currencyCode))
             }
@@ -266,10 +267,11 @@ struct TotalsView: View {
         
         for transaction in allTransactions {
             for item in transaction.lineItems {
-                // Handle deleted products by looking up by name
-                let category = item.product?.category ?? event.products.first(where: { 
+                // ALWAYS look up by name to avoid invalidated SwiftData references
+                let product = event.products.first(where: { 
                     $0.name == item.productName && !$0.isDeleted 
-                })?.category
+                })
+                let category = product?.category
                 
                 if let category = category {
                     if categoryDict[category.id] == nil {
@@ -346,11 +348,11 @@ struct TotalsView: View {
             for item in transaction.lineItems {
                 if let subgroup = item.subgroup, !subgroup.isEmpty {
                     if subgroupDict[subgroup] == nil {
-                        // Handle deleted products by looking up by name
-                        let category = item.product?.category ?? event.products.first(where: { 
+                        // ALWAYS look up by name to avoid invalidated SwiftData references
+                        let product = event.products.first(where: { 
                             $0.name == item.productName && !$0.isDeleted 
-                        })?.category
-                        subgroupDict[subgroup] = (category, [])
+                        })
+                        subgroupDict[subgroup] = (product?.category, [])
                     }
                     subgroupDict[subgroup]?.items.append((item, transaction.currencyCode))
                 }
