@@ -105,10 +105,14 @@ class ExcelExportService {
             .text("Currency", bold: true, centered: true),
             .text("Payment Method", bold: true, centered: true),
             .text("Count", bold: true, centered: true),
-            .text("Total", bold: true, centered: true)
+            .text("Total", bold: true, centered: true),
+            .empty  // Column E for currency totals
         ])
         
+        // Collect stats by currency and method
         var currencyStats: [String: (currency: String, method: String, count: Int, total: Decimal)] = [:]
+        var currencyTotals: [String: Decimal] = [:]
+        
         for transaction in event.transactions {
             let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
             let key = "\(transaction.currencyCode)-\(methodName)"
@@ -118,16 +122,79 @@ class ExcelExportService {
             }
             currencyStats[key]?.count += 1
             currencyStats[key]?.total += transaction.totalAmount
+            
+            currencyTotals[transaction.currencyCode, default: 0] += transaction.totalAmount
         }
         
-        for (_, stats) in currencyStats.sorted(by: { $0.value.currency < $1.value.currency }) {
+        // Sort by currency, then alphabetically by payment method
+        let paymentMethodOrder = ["Bizum", "Card", "Cash", "QR"]
+        let sorted = currencyStats.sorted { first, second in
+            if first.value.currency != second.value.currency {
+                return first.value.currency < second.value.currency
+            }
+            let firstIndex = paymentMethodOrder.firstIndex(of: first.value.method) ?? 999
+            let secondIndex = paymentMethodOrder.firstIndex(of: second.value.method) ?? 999
+            return firstIndex < secondIndex
+        }
+        
+        // Group by currency to add totals
+        var currentCurrency = ""
+        for (_, stats) in sorted {
+            let isLastOfCurrency = sorted.last(where: { $0.value.currency == stats.currency })?.value.method == stats.method
+            
             writer.addRow(to: currenciesIndex, values: [
                 .text(stats.currency),
                 .text(stats.method),
                 .number(Double(stats.count)),
-                .decimal(stats.total)
+                .decimal(stats.total),
+                isLastOfCurrency ? .decimal(currencyTotals[stats.currency] ?? 0) : .empty
             ])
+            
+            currentCurrency = stats.currency
         }
+        
+        // Add category subtotals section
+        writer.addRow(to: currenciesIndex, values: [.empty, .empty, .empty, .empty, .empty])
+        writer.addRow(to: currenciesIndex, values: [
+            .text("Category Totals", bold: true, centered: true),
+            .empty,
+            .empty,
+            .text("Subtotal", bold: true, centered: true),
+            .empty
+        ])
+        
+        // Calculate category totals
+        var categoryTotals: [String: Decimal] = [:]
+        for transaction in event.transactions {
+            for lineItem in transaction.lineItems {
+                if let product = event.products.first(where: {
+                    $0.name == lineItem.productName && $0.subgroup == lineItem.subgroup
+                }), let category = product.category {
+                    categoryTotals[category.name, default: 0] += lineItem.subtotal
+                }
+            }
+        }
+        
+        var categoryGrandTotal: Decimal = 0
+        for (categoryName, total) in categoryTotals.sorted(by: { $0.key < $1.key }) {
+            writer.addRow(to: currenciesIndex, values: [
+                .text(categoryName),
+                .empty,
+                .empty,
+                .decimal(total),
+                .empty
+            ])
+            categoryGrandTotal += total
+        }
+        
+        writer.addRow(to: currenciesIndex, values: [
+            .text("Total", bold: true),
+            .empty,
+            .empty,
+            .decimal(categoryGrandTotal),
+            .empty
+        ])
+
         
         // Sheet 3: Products Summary
         let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
