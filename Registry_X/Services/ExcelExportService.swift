@@ -255,7 +255,7 @@ class ExcelExportService {
         case .transfer:
             return "QR"
         case .other:
-            return "Other"
+            return "QR"  // Other payments are QR
         }
     }
 }
