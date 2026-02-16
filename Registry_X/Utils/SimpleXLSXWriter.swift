@@ -1,4 +1,5 @@
 import Foundation
+import ZIPFoundation
 
 /// Minimal Excel XLSX writer with proven XML structure
 class SimpleXLSXWriter {
@@ -70,9 +71,9 @@ class SimpleXLSXWriter {
             try sheetXML.write(to: worksheetsDir.appendingPathComponent("sheet\(index + 1).xml"), atomically: true, encoding: .utf8)
         }
         
-        // Create ZIP
+        // Create ZIP using ZIPFoundation
         let zipURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".xlsx")
-        try zipDirectory(tempDir, to: zipURL)
+        try FileManager.default.zipItem(at: tempDir, to: zipURL)
         
         let data = try Data(contentsOf: zipURL)
         try? FileManager.default.removeItem(at: zipURL)
@@ -95,7 +96,7 @@ class SimpleXLSXWriter {
         """
         
         for i in 1...worksheets.count {
-            xml += "    <Override Part Name=\"/xl/worksheets/sheet\(i).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>\n"
+            xml += "    <Override PartName=\"/xl/worksheets/sheet\(i).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>\n"
         }
         
         xml += "</Types>"
@@ -287,25 +288,5 @@ class SimpleXLSXWriter {
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
             .replacingOccurrences(of: "'", with: "&apos;")
-    }
-    
-    private func zipDirectory(_ sourceURL: URL, to destinationURL: URL) throws {
-        let coordinator = NSFileCoordinator()
-        var capturedError: Error?
-        
-        coordinator.coordinate(readingItemAt: sourceURL, options: [.forUploading], error: nil) { zippedURL in
-            do {
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    try FileManager.default.removeItem(at: destinationURL)
-                }
-                try FileManager.default.copyItem(at: zippedURL, to: destinationURL)
-            } catch {
-                capturedError = error
-            }
-        }
-        
-        if let error = capturedError {
-            throw error
-        }
     }
 }
