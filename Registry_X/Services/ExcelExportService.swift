@@ -131,7 +131,7 @@ class ExcelExportService {
         }
         
         // Sheet 3: Products Summary
-        let productsIndex = writer.addWorksheet(name: "Products Summary", frozenRows: 1)
+        let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
         
         writer.addRow(to: productsIndex, values: [
             .text("Product", bold: true),
@@ -238,15 +238,25 @@ class ExcelExportService {
     // MARK: - Utilities
     
     private static func paymentMethodName(_ method: PaymentMethod, icon: String? = nil) -> String {
+        // Check for specific icons first
+        if let icon = icon {
+            if icon == "phone.fill" {
+                return "Bizum"
+            } else if icon == "qrcode" {
+                return "QR"
+            }
+        }
+        
+        // Default method names
         switch method {
         case .cash:
             return "Cash"
         case .card:
             return "Card"
         case .transfer:
-            return "Transfer"
+            return "QR"
         case .other:
-            return icon ?? "Other"
+            return "Other"
         }
     }
 }
