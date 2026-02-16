@@ -163,14 +163,22 @@ class ExcelExportService {
             .empty
         ])
         
-        // Calculate category totals
+        // Calculate category totals with currency conversion
         var categoryTotals: [String: Decimal] = [:]
+        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        
         for transaction in event.transactions {
+            // Get exchange rate for this transaction's currency
+            let transactionCurrency = event.currencies.first(where: { $0.code == transaction.currencyCode })
+            let exchangeRate = transactionCurrency?.rate ?? 1.0
+            
             for lineItem in transaction.lineItems {
                 if let product = event.products.first(where: {
                     $0.name == lineItem.productName && $0.subgroup == lineItem.subgroup
                 }), let category = product.category {
-                    categoryTotals[category.name, default: 0] += lineItem.subtotal
+                    // Convert to main currency
+                    let convertedAmount = lineItem.subtotal / exchangeRate
+                    categoryTotals[category.name, default: 0] += convertedAmount
                 }
             }
         }
