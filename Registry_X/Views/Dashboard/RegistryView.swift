@@ -109,7 +109,12 @@ struct RegistryView: View {
         // Collect all line items grouped by category
         for transaction in dayTransactions {
             for item in transaction.lineItems {
-                if let category = item.product?.category {
+                // Handle deleted products by looking up by name
+                let category = item.product?.category ?? event.products.first(where: { 
+                    $0.name == item.productName && !$0.isDeleted 
+                })?.category
+                
+                if let category = category {
                     if categoryDict[category.id] == nil {
                         categoryDict[category.id] = (category, [])
                     }
@@ -191,7 +196,11 @@ struct RegistryView: View {
             for item in transaction.lineItems {
                 if let subgroup = item.subgroup, !subgroup.isEmpty {
                     if subgroupDict[subgroup] == nil {
-                        subgroupDict[subgroup] = (item.product?.category, [])
+                        // Handle deleted products by looking up by name
+                        let category = item.product?.category ?? event.products.first(where: { 
+                            $0.name == item.productName && !$0.isDeleted 
+                        })?.category
+                        subgroupDict[subgroup] = (category, [])
                     }
                     subgroupDict[subgroup]?.items.append((item, transaction.currencyCode))
                 }
@@ -248,7 +257,11 @@ struct RegistryView: View {
         for transaction in dayTransactions {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
-                    productDict[item.productName] = (item.product?.category, [])
+                    // Handle deleted products by looking up by name
+                    let category = item.product?.category ?? event.products.first(where: { 
+                        $0.name == item.productName && !$0.isDeleted 
+                    })?.category
+                    productDict[item.productName] = (category, [])
                 }
                 productDict[item.productName]?.items.append((item, transaction.currencyCode))
             }
