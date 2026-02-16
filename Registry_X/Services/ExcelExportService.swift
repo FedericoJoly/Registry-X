@@ -24,16 +24,16 @@ class ExcelExportService {
         
         // Header row
         var headers: [SimpleXLSXWriter.CellValue] = [
-            .text("TX ID", bold: true),
-            .text("TX Date", bold: true),
-            .text("TX Time", bold: true),
-            .text("Payment Method", bold: true),
-            .text("Currency", bold: true),
-            .text("Total", bold: true),
-            .text("Discount", bold: true),
-            .text("Subtotal", bold: true),
-            .text("Note", bold: true),
-            .text("Email", bold: true)
+            .text("TX ID", bold: true, centered: true),
+            .text("TX Date", bold: true, centered: true),
+            .text("TX Time", bold: true, centered: true),
+            .text("Payment Method", bold: true, centered: true),
+            .text("Currency", bold: true, centered: true),
+            .text("Total", bold: true, centered: true),
+            .text("Discount", bold: true, centered: true),
+            .text("Subtotal", bold: true, centered: true),
+            .text("Note", bold: true, centered: true),
+            .text("Email", bold: true, centered: true)
         ]
         for product in allProducts {
             headers.append(.text(product.name, bold: true))
@@ -102,10 +102,10 @@ class ExcelExportService {
         let currenciesIndex = writer.addWorksheet(name: "Currencies", frozenRows: 1)
         
         writer.addRow(to: currenciesIndex, values: [
-            .text("Currency", bold: true),
-            .text("Payment Method", bold: true),
-            .text("Count", bold: true),
-            .text("Total", bold: true)
+            .text("Currency", bold: true, centered: true),
+            .text("Payment Method", bold: true, centered: true),
+            .text("Count", bold: true, centered: true),
+            .text("Total", bold: true, centered: true)
         ])
         
         var currencyStats: [String: (currency: String, method: String, count: Int, total: Decimal)] = [:]
@@ -133,10 +133,10 @@ class ExcelExportService {
         let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
         
         writer.addRow(to: productsIndex, values: [
-            .text("Product", bold: true),
-            .text("Units Sold", bold: true),
-            .text("Avg Price", bold: true),
-            .text("Total", bold: true)
+            .text("Product", bold: true, centered: true),
+            .text("Units Sold", bold: true, centered: true),
+            .text("Avg Price", bold: true, centered: true),
+            .text("Total", bold: true, centered: true)
         ])
         
         var productStats: [UUID: (product: Product, units: Int, revenue: Decimal)] = [:]
@@ -170,7 +170,7 @@ class ExcelExportService {
         }
         
         writer.addRow(to: productsIndex, values: [
-            .text("TOTAL", bold: true),
+            .text("TOTAL", bold: true, centered: true),
             .empty,
             .empty,
             .decimal(grandTotal)
@@ -180,9 +180,9 @@ class ExcelExportService {
         let groupsIndex = writer.addWorksheet(name: "Groups", frozenRows: 1)
         
         writer.addRow(to: groupsIndex, values: [
-            .text("Group", bold: true),
-            .text("Units", bold: true),
-            .text("Total", bold: true)
+            .text("Group", bold: true, centered: true),
+            .text("Units", bold: true, centered: true),
+            .text("Total", bold: true, centered: true)
         ])
         
         var categoryStats: [UUID: (category: Category, units: Int, total: Decimal)] = [:]
@@ -212,7 +212,7 @@ class ExcelExportService {
             }
         }
         
-        writer.addRow(to: groupsIndex, values: [.text("Categories", bold: true), .empty, .empty])
+        writer.addRow(to: groupsIndex, values: [.text("Categories", bold: true, centered: true), .empty, .empty])
         for (_, stats) in categoryStats.sorted(by: { $0.value.category.name < $1.value.category.name }) {
             writer.addRow(to: groupsIndex, values: [
                 .text(stats.category.name),
@@ -222,7 +222,7 @@ class ExcelExportService {
         }
         
         writer.addRow(to: groupsIndex, values: [.empty, .empty, .empty])
-        writer.addRow(to: groupsIndex, values: [.text("Subgroups", bold: true), .empty, .empty])
+        writer.addRow(to: groupsIndex, values: [.text("Subgroups", bold: true, centered: true), .empty, .empty])
         for (subgroup, stats) in subgroupStats.sorted(by: { $0.key < $1.key }) {
             writer.addRow(to: groupsIndex, values: [
                 .text(subgroup),

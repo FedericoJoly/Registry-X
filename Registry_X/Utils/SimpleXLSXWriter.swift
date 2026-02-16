@@ -11,7 +11,7 @@ class SimpleXLSXWriter {
     }
     
     enum CellValue {
-        case text(String, bold: Bool = false)
+        case text(String, bold: Bool = false, centered: Bool = false)
         case number(Double)
         case decimal(Decimal)
         case empty
@@ -188,9 +188,12 @@ class SimpleXLSXWriter {
             <cellStyleXfs count="1">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
             </cellStyleXfs>
-            <cellXfs count="2">
+            <cellXfs count="3">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+                <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">
+                    <alignment horizontal="center"/>
+                </xf>
             </cellXfs>
             <cellStyles count="1">
                 <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -241,8 +244,15 @@ class SimpleXLSXWriter {
                 let cellRef = "\(columnLetter(colIndex))\(rowNum)"
                 
                 switch cell {
-                case .text(let value, let bold):
-                    let style = bold ? " s=\"1\"" : ""
+                case .text(let value, let bold, let centered):
+                    let style: String
+                    if bold && centered {
+                        style = " s=\"2\""
+                    } else if bold {
+                        style = " s=\"1\""
+                    } else {
+                        style = ""
+                    }
                     xml += "            <c r=\"\(cellRef)\"\(style) t=\"inlineStr\"><is><t>\(xmlEscape(value))</t></is></c>\n"
                     
                 case .number(let value):
