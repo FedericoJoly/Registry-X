@@ -163,30 +163,32 @@ class ExcelExportService {
             .empty
         ])
         
-        // Calculate category totals with currency conversion
-        var categoryTotals: [String: Decimal] = [:]
-        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        // Calculate category totals using EXACT same logic as TotalsView.swift
+        var categoryDict: [UUID: (category: Category, total: Decimal)] = [:]
         
         for transaction in event.transactions {
-            // Get exchange rate for this transaction's currency
-            let transactionCurrency = event.currencies.first(where: { $0.code == transaction.currencyCode })
-            let exchangeRate = transactionCurrency?.rate ?? 1.0
-            
-            for lineItem in transaction.lineItems {
-                if let product = event.products.first(where: {
-                    $0.name == lineItem.productName && $0.subgroup == lineItem.subgroup
-                }), let category = product.category {
-                    // Convert to main currency
-                    let convertedAmount = lineItem.subtotal / exchangeRate
-                    categoryTotals[category.name, default: 0] += convertedAmount
+            for item in transaction.lineItems {
+                if let category = item.product?.category {
+                    // Convert to main currency with round-up (same as TotalsView)
+                    let subtotalInMain = convertToMainCurrency(item.subtotal, from: transaction.currencyCode, event: event)
+                    
+                    if let existing = categoryDict[category.id] {
+                        categoryDict[category.id] = (category, existing.total + subtotalInMain)
+                    } else {
+                        categoryDict[category.id] = (category, subtotalInMain)
+                    }
                 }
             }
         }
         
+        // Sort by category sortOrder (same as TotalsView)
+        let categoryTotals = categoryDict.map { $0.value }
+            .sorted { $0.category.sortOrder < $1.category.sortOrder }
+        
         var categoryGrandTotal: Decimal = 0
-        for (categoryName, total) in categoryTotals.sorted(by: { $0.key < $1.key }) {
+        for (category, total) in categoryTotals {
             writer.addRow(to: currenciesIndex, values: [
-                .text(categoryName),
+                .text(category.name),
                 .empty,
                 .empty,
                 .decimal(total),
@@ -332,5 +334,23 @@ class ExcelExportService {
         case .other:
             return "QR"  // Other payments are QR
         }
+    }
+    
+    // MARK: - Currency Conversion (copied from TotalsView.swift)
+    
+    private static func convertToMainCurrency(_ amount: Decimal, from currencyCode: String, event: Event) -> Decimal {
+        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        let mainCode = mainCurrency?.code ?? event.currencyCode
+        
+        if currencyCode == mainCode { return amount }
+        
+        let rate = event.currencies.first(where: { $0.code == currencyCode })?.rate ?? 1.0
+        let converted = amount / rate
+        
+        // Apply round-up if enabled (CRITICAL for matching app totals)
+        if event.isTotalRoundUp {
+            return Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
+        }
+        return converted
     }
 }
