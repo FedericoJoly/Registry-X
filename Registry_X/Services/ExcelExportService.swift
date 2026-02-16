@@ -206,7 +206,7 @@ class ExcelExportService {
         ])
 
         
-        // Sheet 3: Products Summary
+        // Sheet 3: Products Summary - using EXACT same logic as TotalsView.groupedByProduct
         let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
         
         writer.addRow(to: productsIndex, values: [
@@ -216,34 +216,54 @@ class ExcelExportService {
             .text("Total", bold: true, centered: true)
         ])
         
-        var productStats: [UUID: (product: Product, units: Int, revenue: Decimal)] = [:]
+        // Group by product name (same as TotalsView)
+        var productDict: [String: (category: Category?, items: [(item: LineItem, currencyCode: String)])] = [:]
+        
         for transaction in event.transactions {
-            for lineItem in transaction.lineItems {
-                if let product = event.products.first(where: {
-                    $0.name == lineItem.productName && $0.subgroup == lineItem.subgroup
-                }), !product.isDeleted {
-                    if productStats[product.id] == nil {
-                        productStats[product.id] = (product, 0, 0)
-                    }
-                    productStats[product.id]?.units += lineItem.quantity
-                    productStats[product.id]?.revenue += lineItem.subtotal
+            for item in transaction.lineItems {
+                if productDict[item.productName] == nil {
+                    productDict[item.productName] = (item.product?.category, [])
                 }
+                productDict[item.productName]?.items.append((item, transaction.currencyCode))
             }
         }
         
-        var grandTotal: Decimal = 0
-        for product in allProducts {
-            let categoryName = product.category?.name ?? "No Category"
-            if let stats = productStats[product.id], stats.units > 0 {
-                let avgPrice = stats.revenue / Decimal(stats.units)
-                writer.addRow(to: productsIndex, values: [
-                    .text(product.name),
-                    .number(Double(stats.units)),
-                    .decimal(avgPrice),
-                    .decimal(stats.revenue)
-                ])
-                grandTotal += stats.revenue
+        // Calculate totals with currency conversion (same as TotalsView)
+        var productResults: [(name: String, category: Category?, units: Int, total: Decimal)] = []
+        for (productName, value) in productDict {
+            let (category, items) = value
+            
+            var totalInMainCurrency = Decimal(0)
+            var totalUnits = 0
+            
+            for (item, currencyCode) in items {
+                let subtotalInMain = convertToMainCurrency(item.subtotal, from: currencyCode, event: event)
+                totalInMainCurrency += subtotalInMain
+                totalUnits += item.quantity
             }
+            
+            productResults.append((productName, category, totalUnits, totalInMainCurrency))
+        }
+        
+        // Sort by product sortOrder (same as TotalsView)
+        let sortedProducts = productResults.sorted { prod1, prod2 in
+            guard let p1 = event.products.first(where: { $0.name == prod1.name }),
+                  let p2 = event.products.first(where: { $0.name == prod2.name }) else {
+                return prod1.name < prod2.name
+            }
+            return p1.sortOrder < p2.sortOrder
+        }
+        
+        var grandTotal: Decimal = 0
+        for product in sortedProducts {
+            let avgPrice = product.total / Decimal(product.units)
+            writer.addRow(to: productsIndex, values: [
+                .text(product.name),
+                .number(Double(product.units)),
+                .decimal(avgPrice),
+                .decimal(product.total)
+            ])
+            grandTotal += product.total
         }
         
         writer.addRow(to: productsIndex, values: [
