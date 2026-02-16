@@ -73,7 +73,7 @@ class SimpleXLSXWriter {
         
         // Create ZIP using ZIPFoundation
         let zipURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".xlsx")
-        try FileManager.default.zipItem(at: tempDir, to: zipURL)
+        try FileManager.default.zipItem(at: tempDir, to: zipURL, shouldKeepParent: false)
         
         let data = try Data(contentsOf: zipURL)
         try? FileManager.default.removeItem(at: zipURL)
