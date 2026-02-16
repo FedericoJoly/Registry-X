@@ -191,13 +191,13 @@ class ExcelExportService {
         xml += "<row r=\"1\">"
         let headers = ["TX ID", "TX Date", "TX Time", "Payment Method", "Currency", "Total", "Discount", "Subtotal", "Note", "Email"]
         for (index, header) in headers.enumerated() {
-            xml += "<c r=\"\(columnLetter(index))1\" t=\"str\" s=\"1\"><v>\(xmlEscape(header))</v></c>"
+            xml += "<c r=\"\(columnLetter(index))1\" t=\"inlineStr\" s=\"1\"><is><t>\(xmlEscape(header))</t></is></c>"
         }
         // Add product columns
         for (index, product) in allProducts.enumerated() {
             let colIndex = headers.count + index
             let productHeader = product.subgroup != nil ? "\(product.name) (\(product.subgroup!))" : product.name
-            xml += "<c r=\"\(columnLetter(colIndex))1\" t=\"str\"><v>\(xmlEscape(productHeader))</v></c>"
+            xml += "<c r=\"\(columnLetter(colIndex))1\" t=\"inlineStr\" s=\"1\"><is><t>\(xmlEscape(productHeader))</t></is></c>"
         }
         xml += "</row>\n"
         
@@ -211,27 +211,27 @@ class ExcelExportService {
             
             // TX ID
             let txId = transaction.transactionRef ?? String(transaction.id.uuidString.prefix(5).uppercased())
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(xmlEscape(txId))</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(txId))</t></is></c>"
             colNum += 1
             
             // TX Date
             let dateFormatter = DateFormatter()
             dateFormatter.dateFormat = "yyyy-MM-dd"
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(dateFormatter.string(from: transaction.timestamp))</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(dateFormatter.string(from: transaction.timestamp))</t></is></c>"
             colNum += 1
             
             // TX Time
             dateFormatter.dateFormat = "HH:mm:ss"
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(dateFormatter.string(from: transaction.timestamp))</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(dateFormatter.string(from: transaction.timestamp))</t></is></c>"
             colNum += 1
             
             // Payment Method
             let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(xmlEscape(methodName))</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(methodName))</t></is></c>"
             colNum += 1
             
             // Currency
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(transaction.currencyCode)</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(transaction.currencyCode)</t></is></c>"
             colNum += 1
             
             // Total
@@ -249,11 +249,11 @@ class ExcelExportService {
             colNum += 1
             
             // Note
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(xmlEscape(transaction.note ?? ""))</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(transaction.note ?? ""))</t></is></c>"
             colNum += 1
             
             // Email
-            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"str\"><v>\(xmlEscape(transaction.receiptEmail ?? ""))</v></c>"
+            xml += "<c r=\"\(columnLetter(colNum))\(rowNum)\" t=\"inlineStr\"><is><t>\(xmlEscape(transaction.receiptEmail ?? ""))</t></is></c>"
             colNum += 1
             
             // Product quantities
