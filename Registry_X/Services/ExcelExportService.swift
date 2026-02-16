@@ -135,7 +135,6 @@ class ExcelExportService {
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
             </cellXfs>
-            </cellXfs>
         </styleSheet>
         """
         try styles.write(to: xlDir.appendingPathComponent("styles.xml"), atomically: true, encoding: .utf8)
