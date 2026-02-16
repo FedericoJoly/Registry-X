@@ -94,7 +94,7 @@ struct SetupView: View {
     
     private func formatTimestamp(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyMMdd-HH-mm"
+        formatter.dateFormat = "yyMMdd-HHmm"
         return formatter.string(from: date)
     }
     
