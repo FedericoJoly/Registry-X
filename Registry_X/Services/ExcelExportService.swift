@@ -206,64 +206,122 @@ class ExcelExportService {
         ])
 
         
-        // Sheet 3: Products Summary - using EXACT same logic as TotalsView.groupedByProduct
+        // Sheet 3: Products Summary - with currency & payment method breakdown
         let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
         
         writer.addRow(to: productsIndex, values: [
             .text("Product", bold: true, centered: true),
-            .text("Units Sold", bold: true, centered: true),
-            .text("Avg Price", bold: true, centered: true),
+            .text("Currency", bold: true, centered: true),
+            .text("Payment Method", bold: true, centered: true),
+            .text("Units", bold: true, centered: true),
             .text("Total", bold: true, centered: true)
         ])
         
-        // Group by product name (same as TotalsView)
-        var productDict: [String: (category: Category?, items: [(item: LineItem, currencyCode: String)])] = [:]
+        // Build full product data structure with currency sections (same as TotalsView)
+        var productDict: [String: (category: Category?, items: [(item: LineItem, currencyCode: String, transaction: Transaction)])] = [:]
         
         for transaction in event.transactions {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
                     productDict[item.productName] = (item.product?.category, [])
                 }
-                productDict[item.productName]?.items.append((item, transaction.currencyCode))
+                productDict[item.productName]?.items.append((item, transaction.currencyCode, transaction))
             }
         }
         
-        // Calculate totals with currency conversion (same as TotalsView)
-        var productResults: [(name: String, category: Category?, units: Int, total: Decimal)] = []
+        // Process each product (same as TotalsView.groupedByProduct)
+        struct ProductData {
+            let name: String
+            let category: Category?
+            let totalUnits: Int
+            let totalInMain: Decimal
+            let currencySections: [(code: String, symbol: String, methods: [(method: String, units: Int, subtotal: Decimal)])]
+            let sortOrder: Int
+        }
+        
+        var productDataList: [ProductData] = []
+        
         for (productName, value) in productDict {
             let (category, items) = value
             
+            var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
             var totalInMainCurrency = Decimal(0)
             var totalUnits = 0
             
-            for (item, currencyCode) in items {
+            for (item, currencyCode, transaction) in items {
                 let subtotalInMain = convertToMainCurrency(item.subtotal, from: currencyCode, event: event)
                 totalInMainCurrency += subtotalInMain
                 totalUnits += item.quantity
+                
+                let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                
+                if currencyDict[currencyCode] == nil {
+                    currencyDict[currencyCode] = []
+                }
+                currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
             }
             
-            productResults.append((productName, category, totalUnits, totalInMainCurrency))
-        }
-        
-        // Sort by product sortOrder (same as TotalsView)
-        let sortedProducts = productResults.sorted { prod1, prod2 in
-            guard let p1 = event.products.first(where: { $0.name == prod1.name }),
-                  let p2 = event.products.first(where: { $0.name == prod2.name }) else {
-                return prod1.name < prod2.name
+            // Build currency sections
+            var currencySections: [(code: String, symbol: String, methods: [(method: String, units: Int, subtotal: Decimal)])] = []
+            for (code, transactions) in currencyDict {
+                var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+                for trans in transactions {
+                    if let existing = methodDict[trans.method] {
+                        methodDict[trans.method] = (existing.units + trans.quantity, existing.subtotal + trans.subtotal)
+                    } else {
+                        methodDict[trans.method] = (trans.quantity, trans.subtotal)
+                    }
+                }
+                
+                let methods = methodDict.map { (method: $0.key, units: $0.value.units, subtotal: $0.value.subtotal) }
+                    .sorted { $0.method < $1.method }
+                
+                let symbol = event.currencies.first(where: { $0.code == code })?.symbol ?? code
+                currencySections.append((code: code, symbol: symbol, methods: methods))
             }
-            return p1.sortOrder < p2.sortOrder
+            
+            let sortedSections = currencySections.sorted { $0.code < $1.code }
+            let productSortOrder = event.products.first(where: { $0.name == productName })?.sortOrder ?? 9999
+            
+            productDataList.append(ProductData(
+                name: productName,
+                category: category,
+                totalUnits: totalUnits,
+                totalInMain: totalInMainCurrency,
+                currencySections: sortedSections,
+                sortOrder: productSortOrder
+            ))
         }
         
+        // Sort by product sortOrder
+        let sortedProducts = productDataList.sorted { $0.sortOrder < $1.sortOrder }
+        
+        // Output products with currency/method breakdown
         var grandTotal: Decimal = 0
         for product in sortedProducts {
-            let avgPrice = product.total / Decimal(product.units)
+            // Product header row
             writer.addRow(to: productsIndex, values: [
-                .text(product.name),
-                .number(Double(product.units)),
-                .decimal(avgPrice),
-                .decimal(product.total)
+                .text(product.name, bold: true),
+                .empty,
+                .empty,
+                .number(Double(product.totalUnits)),
+                .decimal(product.totalInMain)
             ])
-            grandTotal += product.total
+            
+            // Currency and payment method rows
+            for section in product.currencySections {
+                for method in section.methods {
+                    writer.addRow(to: productsIndex, values: [
+                        .empty,
+                        .text(section.code),
+                        .text(method.method),
+                        .number(Double(method.units)),
+                        .text("\(section.symbol)\(method.subtotal.formatted(.number.precision(.fractionLength(2))))")
+                    ])
+                }
+            }
+            
+            grandTotal += product.totalInMain
         }
         
         writer.addRow(to: productsIndex, values: [
