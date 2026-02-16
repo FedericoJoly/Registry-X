@@ -92,6 +92,12 @@ struct SetupView: View {
         showingXLSShare = true
     }
     
+    private func formatTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyMMdd-HH-mm"
+        return formatter.string(from: date)
+    }
+    
     // MARK: - Actions
     
     private func saveSettings() {
@@ -832,13 +838,16 @@ struct SetupView: View {
         }
         .sheet(isPresented: $showingJSONShare) {
            if let data = jsonExportData {
-                ActivityViewController(activityItems: [data], fileName: "\(event.name).json")
+                let username = authService.currentUser?.username ?? "Unknown"
+                let timestamp = formatTimestamp(Date())
+                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json")
             }
         }
         .sheet(isPresented: $showingXLSShare) {
             if let data = xlsExportData {
                 let username = authService.currentUser?.username ?? "Unknown"
-                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username).xlsx")
+                let timestamp = formatTimestamp(Date())
+                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx")
             }
         }
         .sheet(isPresented: $showingMergeFilePicker) {
