@@ -36,8 +36,7 @@ class ExcelExportService {
             .text("Email", bold: true)
         ]
         for product in allProducts {
-            let categoryName = product.category?.name ?? "No Category"
-            headers.append(.text("\(product.name) (\(categoryName)) [\(product.subgroup ?? "-")]", bold: true))
+            headers.append(.text(product.name, bold: true))
         }
         writer.addRow(to: registryIndex, values: headers)
         
@@ -161,7 +160,7 @@ class ExcelExportService {
             if let stats = productStats[product.id], stats.units > 0 {
                 let avgPrice = stats.revenue / Decimal(stats.units)
                 writer.addRow(to: productsIndex, values: [
-                    .text("\(product.name) (\(categoryName))"),
+                    .text(product.name),
                     .number(Double(stats.units)),
                     .decimal(avgPrice),
                     .decimal(stats.revenue)
