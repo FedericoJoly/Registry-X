@@ -94,6 +94,7 @@ struct SetupView: View {
     
     private func formatTimestamp(_ date: Date) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyMMdd-HHmm"
         return formatter.string(from: date)
     }
