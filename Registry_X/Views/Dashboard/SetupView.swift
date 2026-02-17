@@ -233,10 +233,10 @@ struct SetupView: View {
         // 1. Identify IDs in draft
         let draftProdIds = Set(draft.products.map { $0.id })
         
-        // 2. Delete missing (removed in draft)
+        // 2. Mark missing products as deleted (soft delete to preserve transaction data)
         let productsToDelete = event.products.filter { !draftProdIds.contains($0.id) }
         for prod in productsToDelete {
-            modelContext.delete(prod)
+            prod.isDeleted = true
         }
         
         // 3. Update or Create
@@ -248,13 +248,14 @@ struct SetupView: View {
             let linkedCategory = event.categories.first(where: { $0.id == draftProd.categoryId })
             
             if let existing = event.products.first(where: { $0.id == draftProd.id }) {
-                // Update
+                // Update (and undelete if was deleted)
                 existing.name = draftProd.name
                 existing.price = draftProd.price
                 existing.category = linkedCategory
                 existing.subgroup = draftProd.subgroup.isEmpty ? nil : draftProd.subgroup
                 existing.isActive = draftProd.isActive
                 existing.isPromo = draftProd.isPromo
+                existing.isDeleted = false // Undelete if was deleted
                 existing.sortOrder = index
             } else {
                 // Create

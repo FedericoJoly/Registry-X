@@ -110,8 +110,9 @@ struct TotalsView: View {
         for transaction in allTransactions {
             for item in transaction.lineItems {
                 // ALWAYS look up by name to avoid invalidated SwiftData references
+                // Include deleted products (transaction data is sacred)
                 let product = event.products.first(where: { 
-                    $0.name == item.productName && !$0.isDeleted 
+                    $0.name == item.productName
                 })
                 let category = product?.category
                 
@@ -186,8 +187,9 @@ struct TotalsView: View {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
                     // ALWAYS look up by name to avoid invalidated SwiftData references
+                    // Include deleted products (transaction data is sacred)
                     let product = event.products.first(where: { 
-                        $0.name == item.productName && !$0.isDeleted 
+                        $0.name == item.productName
                     })
                     productDict[item.productName] = (product?.category, [])
                 }
@@ -268,8 +270,9 @@ struct TotalsView: View {
         for transaction in allTransactions {
             for item in transaction.lineItems {
                 // ALWAYS look up by name to avoid invalidated SwiftData references
+                // Include deleted products (transaction data is sacred)
                 let product = event.products.first(where: { 
-                    $0.name == item.productName && !$0.isDeleted 
+                    $0.name == item.productName
                 })
                 let category = product?.category
                 
@@ -349,8 +352,9 @@ struct TotalsView: View {
                 if let subgroup = item.subgroup, !subgroup.isEmpty {
                     if subgroupDict[subgroup] == nil {
                         // ALWAYS look up by name to avoid invalidated SwiftData references
+                        // Include deleted products (transaction data is sacred)
                         let product = event.products.first(where: { 
-                            $0.name == item.productName && !$0.isDeleted 
+                            $0.name == item.productName
                         })
                         subgroupDict[subgroup] = (product?.category, [])
                     }

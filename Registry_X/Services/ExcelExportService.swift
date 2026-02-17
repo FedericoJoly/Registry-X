@@ -169,8 +169,9 @@ class ExcelExportService {
         for transaction in event.transactions {
             for item in transaction.lineItems {
                 // ALWAYS look up by name to avoid invalidated SwiftData references
+                // Include deleted products (transaction data is sacred)
                 let product = event.products.first(where: { 
-                    $0.name == item.productName && !$0.isDeleted 
+                    $0.name == item.productName
                 })
                 let category = product?.category
                 
@@ -230,8 +231,9 @@ class ExcelExportService {
             for item in transaction.lineItems {
                 if productDict[item.productName] == nil {
                     // ALWAYS look up by name to avoid invalidated SwiftData references
+                    // Include deleted products (transaction data is sacred)
                     let product = event.products.first(where: { 
-                        $0.name == item.productName && !$0.isDeleted 
+                        $0.name == item.productName
                     })
                     productDict[item.productName] = (product?.category, [])
                 }
