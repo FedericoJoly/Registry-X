@@ -102,6 +102,22 @@ class ExcelExportService {
             writer.addRow(to: registryIndex, values: row)
         }
         
+        
+        // Set Registry column widths
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 0, width: 12) // TX ID
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 1, width: 12) // TX Date
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 2, width: 10) // TX Time
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 3, width: 18) // Payment Method
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 4, width: 10) // Currency
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 5, width: 12) // Total
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 6, width: 10) // Discount
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 7, width: 12) // Subtotal
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 8, width: 30) // Note
+        writer.setColumnWidth(sheetIndex: registryIndex, column: 9, width: 30) // Email
+        for (index, product) in allProducts.enumerated() {
+            let width = max(Double(product.name.count + 2), 10.0)
+            writer.setColumnWidth(sheetIndex: registryIndex, column: 10 + index, width: width)
+        }
         // Sheet 2: Currencies
         let currenciesIndex = writer.addWorksheet(name: "Currencies", frozenRows: 1)
         
@@ -217,6 +233,12 @@ class ExcelExportService {
         ])
 
         
+        
+        // Set Currencies sheet column widths
+        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 0, width: 20) // Currency/Category
+        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 1, width: 20) // Payment Method
+        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 2, width: 12) // Units
+        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 3, width: 15) // Total
         // Sheet 3: Products Summary - with currency & payment method breakdown
         let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
         
@@ -348,6 +370,13 @@ class ExcelExportService {
             .currency(grandTotal, currencyCode: event.currencyCode)
         ])
         
+        
+        // Set Products sheet column widths
+        writer.setColumnWidth(sheetIndex: productsIndex, column: 0, width: 30) // Product name
+        writer.setColumnWidth(sheetIndex: productsIndex, column: 1, width: 12) // Currency code
+        writer.setColumnWidth(sheetIndex: productsIndex, column: 2, width: 18) // Payment method
+        writer.setColumnWidth(sheetIndex: productsIndex, column: 3, width: 10) // Units
+        writer.setColumnWidth(sheetIndex: productsIndex, column: 4, width: 15) // Total
         // Sheet 4: Groups
         let groupsIndex = writer.addWorksheet(name: "Groups", frozenRows: 1)
         
@@ -356,6 +385,11 @@ class ExcelExportService {
             .text("Units", bold: true, centered: true),
             .text("Total", bold: true, centered: true)
         ])
+        
+        // Set Groups sheet column widths
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 0, width: 25) // Group name
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 1, width: 12) // Units
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 2, width: 15) // Total
         
         var categoryStats: [UUID: (category: Category, units: Int, total: Decimal)] = [:]
         var subgroupStats: [String: (units: Int, total: Decimal)] = [:]
