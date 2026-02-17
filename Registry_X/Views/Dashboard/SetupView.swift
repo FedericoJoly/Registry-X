@@ -257,8 +257,18 @@ struct SetupView: View {
                 existing.isPromo = draftProd.isPromo
                 existing.isDeleted = false // Undelete if was deleted
                 existing.sortOrder = index
+            } else if let deletedProduct = event.products.first(where: { $0.name == draftProd.name && $0.isDeleted }) {
+                // Reuse deleted product with same name (prevents duplicates)
+                deletedProduct.id = draftProd.id
+                deletedProduct.price = draftProd.price
+                deletedProduct.category = linkedCategory
+                deletedProduct.subgroup = draftProd.subgroup.isEmpty ? nil : draftProd.subgroup
+                deletedProduct.isActive = draftProd.isActive
+                deletedProduct.isPromo = draftProd.isPromo
+                deletedProduct.isDeleted = false // Undelete
+                deletedProduct.sortOrder = index
             } else {
-                // Create
+                // Create new product
                 let newProd = Product(
                     id: draftProd.id,
                     name: draftProd.name,
@@ -1051,8 +1061,10 @@ struct DraftEventSettings: Equatable {
         self.categories = event.categories.map { DraftCategory(from: $0) }
             .sorted { $0.sortOrder < $1.sortOrder }
             
-        // Map Products
-        self.products = event.products.map { DraftProduct(from: $0) }
+        // Map Products (exclude deleted ones from UI)
+        self.products = event.products
+            .filter { !$0.isDeleted } // Don't show deleted products in Setup UI
+            .map { DraftProduct(from: $0) }
             .sorted { $0.sortOrder < $1.sortOrder }
             
         // Map Promos
