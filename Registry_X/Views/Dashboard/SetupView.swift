@@ -57,8 +57,6 @@ struct SetupView: View {
     @State private var pendingMergeExport: EventExport?
     @State private var xlsExportData: Data?
     @State private var showingXLSShare = false
-    @State private var exportCompleted = false
-    @State private var exportCompletedColor: Color = .green
     
     // Derived Binding (Safe Unwrapping)
     private var draftBinding: Binding<DraftEventSettings> {
@@ -784,33 +782,21 @@ struct SetupView: View {
     var body: some View {
         bodyCore
             .sheet(isPresented: $showingJSONShare, onDismiss: {
-                if exportCompleted {
-                    exportCompleted = false
-                    showActionNotification("Export Successful", color: exportCompletedColor)
-                }
+                showActionNotification("Export Successful", color: .purple)
             }) {
                 if let data = jsonExportData {
                     let username = authService.currentUser?.username ?? "Unknown"
                     let timestamp = formatTimestamp(Date())
-                    ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json", onComplete: {
-                        exportCompleted = true
-                        exportCompletedColor = .purple
-                    })
+                    ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json")
                 }
             }
             .sheet(isPresented: $showingXLSShare, onDismiss: {
-                if exportCompleted {
-                    exportCompleted = false
-                    showActionNotification("Export Successful", color: exportCompletedColor)
-                }
+                showActionNotification("Export Successful", color: .green)
             }) {
                 if let data = xlsExportData {
                     let username = authService.currentUser?.username ?? "Unknown"
                     let timestamp = formatTimestamp(Date())
-                    ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx", onComplete: {
-                        exportCompleted = true
-                        exportCompletedColor = .green
-                    })
+                    ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx")
                 }
             }
             .sheet(isPresented: $showingMergeFilePicker) {
