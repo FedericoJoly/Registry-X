@@ -201,7 +201,7 @@ struct SetupProductsView: View {
     }
     
     private func addProductAfter(_ new: DraftProduct, after id: UUID) {
-        var product = new
+        let product = new
         
         // Find index and insert after
         if let index = products.firstIndex(where: { $0.id == id }) {

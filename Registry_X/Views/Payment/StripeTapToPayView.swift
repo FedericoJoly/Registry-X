@@ -169,20 +169,20 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
             do {
                 let config = try TapToPayConnectionConfigurationBuilder(delegate: self, locationId: self.locationId).build()
                 
-                Terminal.shared.connectReader(reader, connectionConfig: config) { connectedReader, error in
-                    Task { @MainActor in
-                        // Ignore if user canceled
-                        if self.isCanceled { return }
-                        
-                        if let error = error {
-                            self.errorMessage = "Connection failed: \(error.localizedDescription)"
-                            self.paymentStatus = .failed
-                            return
-                        }
-                        
-                        // Reader connected, collect payment
-                        await self.collectPayment()
-                    }
+                do {
+                    let _ = try await Terminal.shared.connectReader(reader, connectionConfig: config)
+                    
+                    // Ignore if user canceled
+                    if self.isCanceled { return }
+                    
+                    // Reader connected, collect payment
+                    await self.collectPayment()
+                } catch {
+                    // Ignore if user canceled
+                    if self.isCanceled { return }
+                    
+                    self.errorMessage = "Connection failed: \(error.localizedDescription)"
+                    self.paymentStatus = .failed
                 }
             } catch {
                 self.errorMessage = "Connection config failed: \(error.localizedDescription)"
@@ -245,7 +245,7 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     
     nonisolated func tapToPayReader(_ reader: Reader, didFinishInstallingUpdate update: ReaderSoftwareUpdate?, error: Error?) {
         Task { @MainActor in
-            if let error = error {
+            if error != nil {
             } else {
             }
         }
@@ -286,70 +286,65 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
             self.paymentIntentId = response.intentId
             
             // Retrieve the payment intent from Stripe
-            Terminal.shared.retrievePaymentIntent(clientSecret: response.clientSecret) { retrieveResult, retrieveError in
-                Task { @MainActor in
-                    if let error = retrieveError {
-                        self.errorMessage = error.localizedDescription
-                        self.paymentStatus = .failed
-                        return
-                    }
-                    
-                    guard let paymentIntent = retrieveResult else { return }
-                    
-                    // Collect payment method
-                    Terminal.shared.collectPaymentMethod(paymentIntent) { collectResult, collectError in
-                        Task { @MainActor in
-                            if let error = collectError {
-                                // Check if this is a user cancellation
-                                let errorMessage = error.localizedDescription
-                                if errorMessage.contains("canceled") || errorMessage.contains("cancelled") {
-                                    // User canceled - dismiss cleanly
-                                    self.isCanceled = true
-                                    self.onCancel()
-                                    return
-                                }
-                                
-                                // Real error - show it
-                                self.errorMessage = errorMessage
-                                self.paymentStatus = .failed
+            do {
+                let paymentIntent = try await Terminal.shared.retrievePaymentIntent(clientSecret: response.clientSecret)
+                
+                // Collect payment method
+                Terminal.shared.collectPaymentMethod(paymentIntent) { collectResult, collectError in
+                    Task { @MainActor in
+                        if let error = collectError {
+                            // Check if this is a user cancellation
+                            let errorMessage = error.localizedDescription
+                            if errorMessage.contains("canceled") || errorMessage.contains("cancelled") {
+                                // User canceled - dismiss cleanly
+                                self.isCanceled = true
+                                self.onCancel()
                                 return
                             }
                             
-                            guard let collectedIntent = collectResult else { return }
-                            
-                            // Update to processing
-                            self.paymentStatus = .processing
-                            
-                            // Confirm payment
-                            Terminal.shared.confirmPaymentIntent(collectedIntent) { confirmResult, confirmError in
-                                Task { @MainActor in
-                                    if let error = confirmError {
-                                        // Check if this is a user cancellation
-                                        let errorMessage = error.localizedDescription
-                                        if errorMessage.contains("canceled") || errorMessage.contains("cancelled") {
-                                            // User canceled - dismiss cleanly
-                                            self.isCanceled = true
-                                            self.onCancel()
-                                            return
-                                        }
-                                        
-                                        // Real error - show it
-                                        self.errorMessage = errorMessage
-                                        self.paymentStatus = .failed
+                            // Real error - show it
+                            self.errorMessage = errorMessage
+                            self.paymentStatus = .failed
+                            return
+                        }
+                        
+                        guard let collectedIntent = collectResult else { return }
+                        
+                        // Update to processing
+                        self.paymentStatus = .processing
+                        
+                        // Confirm payment
+                        Terminal.shared.confirmPaymentIntent(collectedIntent) { confirmResult, confirmError in
+                            Task { @MainActor in
+                                if let error = confirmError {
+                                    // Check if this is a user cancellation
+                                    let errorMessage = error.localizedDescription
+                                    if errorMessage.contains("canceled") || errorMessage.contains("cancelled") {
+                                        // User canceled - dismiss cleanly
+                                        self.isCanceled = true
+                                        self.onCancel()
                                         return
                                     }
                                     
-                                    // Success!
-                                    self.paymentStatus = .success
-                                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                                    if let intentId = self.paymentIntentId {
-                                        self.onSuccess(intentId)
-                                    }
+                                    // Real error - show it
+                                    self.errorMessage = errorMessage
+                                    self.paymentStatus = .failed
+                                    return
+                                }
+                                
+                                // Success!
+                                self.paymentStatus = .success
+                                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                if let intentId = self.paymentIntentId {
+                                    self.onSuccess(intentId)
                                 }
                             }
                         }
                     }
                 }
+            } catch {
+                self.errorMessage = error.localizedDescription
+                self.paymentStatus = .failed
             }
             
         } catch {
