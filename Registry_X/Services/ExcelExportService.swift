@@ -377,64 +377,164 @@ class ExcelExportService {
         writer.setColumnWidth(sheetIndex: productsIndex, column: 2, width: 18) // Payment method
         writer.setColumnWidth(sheetIndex: productsIndex, column: 3, width: 10) // Units
         writer.setColumnWidth(sheetIndex: productsIndex, column: 4, width: 15) // Total
-        // Sheet 4: Groups
+        // Sheet 4: Groups (matching TotalsView Groups tab format)
         let groupsIndex = writer.addWorksheet(name: "Groups", frozenRows: 1)
         
         writer.addRow(to: groupsIndex, values: [
             .text("Group", bold: true, centered: true),
+            .text("Currency", bold: true, centered: true),
+            .text("Method", bold: true, centered: true),
             .text("Units", bold: true, centered: true),
             .text("Total", bold: true, centered: true)
         ])
         
         // Set Groups sheet column widths
         writer.setColumnWidth(sheetIndex: groupsIndex, column: 0, width: 25) // Group name
-        writer.setColumnWidth(sheetIndex: groupsIndex, column: 1, width: 12) // Units
-        writer.setColumnWidth(sheetIndex: groupsIndex, column: 2, width: 15) // Total
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 1, width: 12) // Currency
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 2, width: 18) // Method
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 3, width: 10) // Units
+        writer.setColumnWidth(sheetIndex: groupsIndex, column: 4, width: 15) // Total
         
-        var categoryStats: [UUID: (category: Category, units: Int, total: Decimal)] = [:]
-        var subgroupStats: [String: (units: Int, total: Decimal)] = [:]
+        // ---- CATEGORIES (By Type) ----
+        writer.addRow(to: groupsIndex, values: [.text("By Type", bold: true, centered: true), .empty, .empty, .empty, .empty])
+        
+        // Build category data with currency/method breakdown (same logic as TotalsView.groupedByCategory)
+        var groupCategoryDict: [UUID: (category: Category, items: [(item: LineItem, currencyCode: String, transaction: Transaction)])] = [:]
         
         for transaction in event.transactions {
-            for lineItem in transaction.lineItems {
-                if let product = event.products.first(where: {
-                    $0.name == lineItem.productName && $0.subgroup == lineItem.subgroup
-                }) {
-                    if let category = product.category, !category.isDeleted {
-                        if categoryStats[category.id] == nil {
-                            categoryStats[category.id] = (category, 0, 0)
-                        }
-                        categoryStats[category.id]?.units += lineItem.quantity
-                        categoryStats[category.id]?.total += lineItem.subtotal
+            for item in transaction.lineItems {
+                let product = event.products.first(where: { $0.name == item.productName })
+                if let category = product?.category {
+                    if groupCategoryDict[category.id] == nil {
+                        groupCategoryDict[category.id] = (category, [])
                     }
-                    
-                    if let subgroup = product.subgroup {
-                        if subgroupStats[subgroup] == nil {
-                            subgroupStats[subgroup] = (0, 0)
-                        }
-                        subgroupStats[subgroup]?.units += lineItem.quantity
-                        subgroupStats[subgroup]?.total += lineItem.subtotal
-                    }
+                    groupCategoryDict[category.id]?.items.append((item, transaction.currencyCode, transaction))
                 }
             }
         }
         
-        writer.addRow(to: groupsIndex, values: [.text("Categories", bold: true, centered: true), .empty, .empty])
-        for (_, stats) in categoryStats.sorted(by: { $0.value.category.name < $1.value.category.name }) {
-            writer.addRow(to: groupsIndex, values: [
-                .text(stats.category.name),
-                .number(Double(stats.units)),
-                .decimal(stats.total)
-            ])
+        struct CategoryData {
+            let category: Category
+            let totalUnits: Int
+            let totalInMain: Decimal
+            let currencySections: [(code: String, symbol: String, methods: [(method: String, units: Int, subtotal: Decimal)])]
         }
         
-        writer.addRow(to: groupsIndex, values: [.empty, .empty, .empty])
-        writer.addRow(to: groupsIndex, values: [.text("Subgroups", bold: true, centered: true), .empty, .empty])
-        for (subgroup, stats) in subgroupStats.sorted(by: { $0.key < $1.key }) {
+        var categoryDataList: [CategoryData] = []
+        
+        for (_, value) in groupCategoryDict {
+            let (categ, catItems) = value
+            
+            var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
+            var totalInMainCurrency = Decimal(0)
+            var totalUnits = 0
+            
+            for (item, currencyCode, transaction) in catItems {
+                let subtotalInMain = convertToMainCurrency(item.subtotal, from: currencyCode, event: event)
+                totalInMainCurrency += subtotalInMain
+                totalUnits += item.quantity
+                
+                let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                
+                if currencyDict[currencyCode] == nil {
+                    currencyDict[currencyCode] = []
+                }
+                currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
+            }
+            
+            var currencySections: [(code: String, symbol: String, methods: [(method: String, units: Int, subtotal: Decimal)])] = []
+            for (code, transactions) in currencyDict {
+                var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+                for trans in transactions {
+                    if let existing = methodDict[trans.method] {
+                        methodDict[trans.method] = (existing.units + trans.quantity, existing.subtotal + trans.subtotal)
+                    } else {
+                        methodDict[trans.method] = (trans.quantity, trans.subtotal)
+                    }
+                }
+                
+                let methods = methodDict.map { (method: $0.key, units: $0.value.units, subtotal: $0.value.subtotal) }
+                    .sorted { $0.method < $1.method }
+                
+                let symbol = event.currencies.first(where: { $0.code == code })?.symbol ?? code
+                currencySections.append((code: code, symbol: symbol, methods: methods))
+            }
+            
+            let sortedSections = currencySections.sorted { $0.code < $1.code }
+            
+            categoryDataList.append(CategoryData(
+                category: categ,
+                totalUnits: totalUnits,
+                totalInMain: totalInMainCurrency,
+                currencySections: sortedSections
+            ))
+        }
+        
+        let sortedCategories = categoryDataList.sorted { $0.category.sortOrder < $1.category.sortOrder }
+        
+        for catData in sortedCategories {
+            // Category header row (bold)
             writer.addRow(to: groupsIndex, values: [
-                .text(subgroup),
-                .number(Double(stats.units)),
-                .decimal(stats.total)
+                .text(catData.category.name, bold: true),
+                .empty,
+                .empty,
+                .number(Double(catData.totalUnits), bold: true),
+                .currency(catData.totalInMain, currencyCode: event.currencyCode, bold: true)
             ])
+            
+            // Currency and payment method rows
+            for section in catData.currencySections {
+                for method in section.methods {
+                    writer.addRow(to: groupsIndex, values: [
+                        .empty,
+                        .text(section.code),
+                        .text(method.method),
+                        .number(Double(method.units)),
+                        .currency(method.subtotal, currencyCode: section.code)
+                    ])
+                }
+            }
+        }
+        
+        // ---- SUBGROUPS (By Subgroup) ----
+        // Build subgroup data with product breakdown
+        var subgroupDict: [String: (category: Category?, items: [(item: LineItem, currencyCode: String)])] = [:]
+        
+        for transaction in event.transactions {
+            for item in transaction.lineItems {
+                if let subgroup = item.subgroup, !subgroup.isEmpty {
+                    if subgroupDict[subgroup] == nil {
+                        let product = event.products.first(where: { $0.name == item.productName })
+                        subgroupDict[subgroup] = (product?.category, [])
+                    }
+                    subgroupDict[subgroup]?.items.append((item, transaction.currencyCode))
+                }
+            }
+        }
+        
+        if !subgroupDict.isEmpty {
+            writer.addRow(to: groupsIndex, values: [.empty, .empty, .empty, .empty, .empty])
+            writer.addRow(to: groupsIndex, values: [.text("By Subgroup", bold: true, centered: true), .empty, .empty, .empty, .empty])
+            
+            for (subgroupName, value) in subgroupDict.sorted(by: { $0.key < $1.key }) {
+                let (_, items) = value
+                var totalInMainCurrency = Decimal(0)
+                var totalUnits = 0
+                
+                for (item, currencyCode) in items {
+                    let subtotalInMain = convertToMainCurrency(item.subtotal, from: currencyCode, event: event)
+                    totalInMainCurrency += subtotalInMain
+                    totalUnits += item.quantity
+                }
+                
+                writer.addRow(to: groupsIndex, values: [
+                    .text(subgroupName, bold: true),
+                    .empty,
+                    .empty,
+                    .number(Double(totalUnits), bold: true),
+                    .currency(totalInMainCurrency, currencyCode: event.currencyCode, bold: true)
+                ])
+            }
         }
         
         return try writer.generateXLSX()
