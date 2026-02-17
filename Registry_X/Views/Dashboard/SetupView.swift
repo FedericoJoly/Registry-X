@@ -538,11 +538,6 @@ struct SetupView: View {
             }
             .buttonStyle(.plain)
             
-            NavigationLink(destination: productsDetail) {
-                SetupCategoryButton(title: "Products", icon: "cube.fill", color: Color(red: 0.0, green: 0.2, blue: 0.4))
-            }
-            .buttonStyle(.plain)
-            
             NavigationLink(destination: companyDetail) {
                 SetupCategoryButton(title: "Company", icon: "building.2.fill", color: Color(red: 0.0, green: 0.2, blue: 0.4))
             }
@@ -557,6 +552,11 @@ struct SetupView: View {
             
             NavigationLink(destination: paymentDetail) {
                 SetupCategoryButton(title: "Payment", icon: "dollarsign.circle.fill", color: Color(red: 0.0, green: 0.2, blue: 0.4))
+            }
+            .buttonStyle(.plain)
+            
+            NavigationLink(destination: productsDetail) {
+                SetupCategoryButton(title: "Products", icon: "cube.fill", color: Color(red: 0.0, green: 0.2, blue: 0.4))
             }
             .buttonStyle(.plain)
         }
