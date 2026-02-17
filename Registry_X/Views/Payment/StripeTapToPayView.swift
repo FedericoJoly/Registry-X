@@ -207,7 +207,6 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     
     nonisolated func terminal(_ terminal: Terminal, didStartInstallingUpdate update: ReaderSoftwareUpdate, cancelable: Cancelable?) {
         Task { @MainActor in
-            print("Started installing update: \(update)")
             self.isUpdating = true
             self.paymentStatus = .updating
             self.updateProgress = 0.0
@@ -217,19 +216,16 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     nonisolated func terminal(_ terminal: Terminal, didReportReaderSoftwareUpdateProgress progress: Float) {
         Task { @MainActor in
             self.updateProgress = progress
-            print("Reader update progress: \(progress)")
         }
     }
     
     nonisolated func terminal(_ terminal: Terminal, didFinishInstallingUpdate update: ReaderSoftwareUpdate?, error: Error?) {
         Task { @MainActor in
             if let error = error {
-                print("Update failed: \(error.localizedDescription)")
                 self.errorMessage = "Update failed: \(error.localizedDescription)"
                 self.paymentStatus = .failed
                 self.isUpdating = false
             } else {
-                print("Update completed successfully")
                 self.isUpdating = false
                 // Don't change status here - connection flow will continue
             }
@@ -240,34 +236,28 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     
     nonisolated func tapToPayReader(_ reader: Reader, didReportReaderSoftwareUpdateProgress progress: Float) {
         // Handle update progress
-        print("Reader update progress: \(progress)")
     }
     
     nonisolated func tapToPayReader(_ reader: Reader, didStartInstallingUpdate update: ReaderSoftwareUpdate, cancelable: Cancelable?) {
         Task { @MainActor in
-            print("Started installing update: \(update)")
         }
     }
     
     nonisolated func tapToPayReader(_ reader: Reader, didFinishInstallingUpdate update: ReaderSoftwareUpdate?, error: Error?) {
         Task { @MainActor in
             if let error = error {
-                print("Update failed: \(error.localizedDescription)")
             } else {
-                print("Update completed successfully")
             }
         }
     }
     
     nonisolated func tapToPayReader(_ reader: Reader, didRequestReaderInput inputOptions: ReaderInputOptions) {
         Task { @MainActor in
-            print("Reader requesting input: \(inputOptions)")
         }
     }
     
     nonisolated func tapToPayReader(_ reader: Reader, didRequestReaderDisplayMessage displayMessage: ReaderDisplayMessage) {
         Task { @MainActor in
-            print("Reader display message: \(displayMessage)")
         }
     }
     

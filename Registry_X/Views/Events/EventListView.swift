@@ -345,12 +345,7 @@ struct EventListView: View {
         Button("Cancel", role: .cancel) { }
     } message: {
         Text("Enter a name for the new copy.")
-        // Can't dynamically update message easily here without re-render.
     }
-    
-    // ERROR ALERT for Duplicate
-    // We need a separate state for duplicate error if we want to tell user "Name Taken".
-    // Or we simply modify logic.
     
     // LOCK ALERT
     .alert("Lock Event", isPresented: $showingLockAlert) {
@@ -377,15 +372,7 @@ struct EventListView: View {
                     target.isLocked = false
                     target.pinCode = nil
                 } else {
-                    // This creates a loop if we just set error true, standard alert dismisses.
-                    // We need a way to say "Try Again".
-                    // But standard alert closes.
-                    // We will set error state, and maybe re-show alert?
-                    // Simplified: Just failing is common on iOS defaults.
-                    // But user specifically asked for "Say Wrong pin number".
                     unlockError = true
-                    // To show message, we must re-present alert or change message next time.
-                    // Or keep alert open? Not possible with standard .alert modifier easily.
                 }
             }
         }
@@ -482,8 +469,7 @@ struct EventListView: View {
     }
     
     // MARK: - Logic Helpers
-    // Need a state for duplicate error
-
+    
     
     private func validateAndDuplicate(_ original: Event, newName: String) {
         do {
@@ -808,7 +794,6 @@ struct EventListView: View {
 return
             }
             
-            print("Successfully imported event: \(newEvent.name)")
             showActionNotification("'\(newEvent.name)' Imported", color: .purple)
             
         } catch let decodingError as DecodingError {

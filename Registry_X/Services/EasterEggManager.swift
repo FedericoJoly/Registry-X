@@ -33,18 +33,15 @@ class EasterEggManager: ObservableObject {
         tapCount += 1
         lastTapTime = now
         
-        print("🥚 Easter Egg: Tap #\(tapCount)")
         
         let remaining = targetTaps - tapCount
         
         // Show countdown for every tap from 10 remaining down to 1
         if remaining <= 10 && remaining >= 1 {
-            print("🥚 Easter Egg: Showing countdown - \(remaining) remaining")
             
             // Preload audio when countdown reaches 5
             if remaining == 5 && audioManager.audioPlayer == nil {
                 audioManager.loadAudio(filename: "Outro X")
-                print("🥚 Easter Egg: Preloading audio")
             }
             
             // Cancel previous countdown timer
@@ -74,7 +71,6 @@ class EasterEggManager: ObservableObject {
     
     @MainActor
     private func triggerEasterEgg() {
-        print("🥚 Easter Egg: TRIGGERED! Showing success message")
         
         // Cancel any running countdown timer from previous taps
         countdownTask?.cancel()
@@ -95,7 +91,6 @@ class EasterEggManager: ObservableObject {
         // Keep success message visible for 3 seconds, then fade it out
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
-            print("🥚 Easter Egg: Fading success message")
             
             // Fade out success message while player stays visible
             withAnimation(.easeOut(duration: 0.4)) {

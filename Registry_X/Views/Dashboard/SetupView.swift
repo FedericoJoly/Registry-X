@@ -692,16 +692,9 @@ struct SetupView: View {
         .padding(.bottom, 12)
     }
     
-    private var exportActionsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // This section is now merged into eventActionsSection
-        }
-    }
-    
     private var footerSection: some View {
         VStack(spacing: 0) {
             eventActionsSection
-            exportActionsSection
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 10)

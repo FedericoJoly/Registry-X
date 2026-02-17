@@ -263,7 +263,6 @@ struct StripeQRPaymentView: View {
                 }
             } catch {
                 // Continue polling on error (session might not exist yet or network issues)
-                print("Poll attempt \(attempt + 1) failed: \(error.localizedDescription)")
             }
         }
         

@@ -143,6 +143,5 @@ struct TermSection: View {
 
 #Preview {
     TapToPayTermsView(userId: "preview") {
-        print("Terms accepted")
     }
 }

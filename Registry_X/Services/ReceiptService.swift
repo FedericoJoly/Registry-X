@@ -37,8 +37,6 @@ class ReceiptService {
             return (false, "Invalid backend URL")
         }
         
-        print("📧 Sending receipt to: \(email)")
-        print("📧 Backend URL: \(url.absoluteString)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -58,15 +56,12 @@ class ReceiptService {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("📧 ERROR: Invalid response from server")
                 return (false, "Invalid response from server")
             }
             
-            print("📧 Response status: \(httpResponse.statusCode)")
             
             if httpResponse.statusCode == 200 {
                 // Success
-                print("📧 Receipt sent successfully!")
                 return (true, nil)
             } else {
                 // Server error

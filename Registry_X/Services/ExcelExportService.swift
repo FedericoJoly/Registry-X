@@ -157,7 +157,6 @@ class ExcelExportService {
         }
         
         // Group by currency to add totals
-        var currentCurrency = ""
         for (_, stats) in sorted {
             let isLastOfCurrency = sorted.last(where: { $0.value.currency == stats.currency })?.value.method == stats.method
             
@@ -167,8 +166,6 @@ class ExcelExportService {
                 .currency(stats.total, currencyCode: stats.currency),
                 isLastOfCurrency ? .currency(currencyTotals[stats.currency] ?? 0, currencyCode: stats.currency) : .empty
             ])
-            
-            currentCurrency = stats.currency
         }
         
         // Add category subtotals section

@@ -623,7 +623,7 @@ struct PanelView: View {
         return event.stripeCompanyName ?? ""
     }
     
-    // MARK: - Initializationents
+    // MARK: - Initialization
     
     @ViewBuilder
     private var productPagerView: some View {
@@ -756,9 +756,6 @@ struct PanelView: View {
 
 
         .sheet(isPresented: $showingPaymentMethodSheet) {
-            let _ = availablePaymentMethods.forEach { method in
-                print("   - \(method.name) (icon: \(method.icon), enabled currencies: \(method.enabledCurrencies.count))")
-            }
             PaymentMethodSelectionSheet(
                 availableMethods: availablePaymentMethods,
                 currentCurrency: currentCurrencyCode,
@@ -769,41 +766,27 @@ struct PanelView: View {
                     
                     selectedMethodOption = methodOption
                         
-                        // DEBUG: Log payment method details
-                        print("🔍 PAYMENT DEBUG:")
-                        print("   Method name: \(methodOption.name)")
-                        print("   Method icon: \(methodOption.icon)")
-                        print("   Phone number: \(event.bizumPhoneNumber ?? "nil")")
-                        print("   Enabled providers: \(methodOption.enabledProviders)")
-                        
-                        // IMPORTANT: Check icon-based features FIRST
+                        // Check icon-based features FIRST
                         // Some icons (like phone.fill for Bizum) convert to .other and can be caught by Stripe logic
                         
                         // 1. Bizum (phone icon)
                         if methodOption.icon.contains("phone") {
-                            print("   ✅ Matched phone icon - Bizum path")
                             if let phoneNumber = event.bizumPhoneNumber, !phoneNumber.isEmpty {
-                                print("   ✅ Phone number configured: \(phoneNumber)")
-                                print("   → Showing BizumPaymentView")
                                 showingBizumPayment = true
                             } else {
-                                print("   ⚠️ No phone number - processing as manual")
                                 processCheckout()
                             }
                         }
                         // 2. Stripe QR (qrcode icon with Stripe provider)
                         else if methodOption.icon.contains("qrcode") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
-                            print("   ✅ Matched qrcode + Stripe - QR path")
                             showingStripeQRPayment = true
                         }
                         // 3. Stripe Card (creditcard icon with Stripe provider)
                         else if methodOption.icon.contains("creditcard") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
-                            print("   ✅ Matched creditcard + Stripe - Card path")
                             showingStripeCardPayment = true
                         }
                         // 4. Everything else - manual payment
                         else {
-                            print("   ℹ️ No special provider - manual payment")
                             processCheckout()
                         }
 
