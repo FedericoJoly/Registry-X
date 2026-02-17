@@ -92,7 +92,11 @@ class ExcelExportService {
             
             for product in allProducts {
                 let qty = productQuantities[product.id] ?? 0
-                row.append(.number(Double(qty)))
+                if qty > 0 {
+                    row.append(.number(Double(qty)))
+                } else {
+                    row.append(.empty) // Don't show 0, leave blank for readability
+                }
             }
             
             writer.addRow(to: registryIndex, values: row)
@@ -198,7 +202,7 @@ class ExcelExportService {
                 .text(category.name),
                 .empty,
                 .empty,
-                .decimal(total),
+                .currency(total, currencyCode: event.currencyCode),
                 .empty
             ])
             categoryGrandTotal += total
@@ -311,13 +315,13 @@ class ExcelExportService {
         // Output products with currency/method breakdown
         var grandTotal: Decimal = 0
         for product in sortedProducts {
-            // Product header row
+            // Product header row (bold)
             writer.addRow(to: productsIndex, values: [
                 .text(product.name, bold: true),
                 .empty,
                 .empty,
-                .number(Double(product.totalUnits)),
-                .decimal(product.totalInMain)
+                .text(String(product.totalUnits), bold: true), // Bold units
+                .currency(product.totalInMain, currencyCode: event.currencyCode) // Currency format
             ])
             
             // Currency and payment method rows
@@ -328,7 +332,7 @@ class ExcelExportService {
                         .text(section.code),
                         .text(method.method),
                         .number(Double(method.units)),
-                        .text("\(section.symbol)\(method.subtotal.formatted(.number.precision(.fractionLength(2))))")
+                        .currency(method.subtotal, currencyCode: section.code) // Currency format
                     ])
                 }
             }
@@ -340,7 +344,8 @@ class ExcelExportService {
             .text("TOTAL", bold: true, centered: true),
             .empty,
             .empty,
-            .decimal(grandTotal)
+            .empty,
+            .currency(grandTotal, currencyCode: event.currencyCode)
         ])
         
         // Sheet 4: Groups

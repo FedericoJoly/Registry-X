@@ -8,12 +8,14 @@ class SimpleXLSXWriter {
         let name: String
         var rows: [[CellValue]] = []
         var frozenRows: Int = 0
+        var columnWidths: [Int: Double] = [:] // Column index to width in characters
     }
     
     enum CellValue {
         case text(String, bold: Bool = false, centered: Bool = false)
         case number(Double)
         case decimal(Decimal)
+        case currency(Decimal, currencyCode: String) // Currency formatting
         case empty
     }
     
@@ -29,6 +31,11 @@ class SimpleXLSXWriter {
         worksheets[sheetIndex].rows.append(values)
     }
     
+    func setColumnWidth(sheetIndex: Int, column: Int, width: Double) {
+        guard sheetIndex < worksheets.count else { return }
+        worksheets[sheetIndex].columnWidths[column] = width
+    }
+    
     func generateXLSX() throws -> Data {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -37,15 +44,15 @@ class SimpleXLSXWriter {
             try? FileManager.default.removeItem(at: tempDir)
         }
         
-        // Create structure
-        let xlDir = tempDir.appendingPathComponent("xl")
+        // Create directory structure
         let relsDir = tempDir.appendingPathComponent("_rels")
+        let xlDir = tempDir.appendingPathComponent("xl")
         let xlRelsDir = xlDir.appendingPathComponent("_rels")
-        let worksheetsDir = xlDir.appendingPathComponent("worksheets")
+        let xlWorksheetsDir = xlDir.appendingPathComponent("worksheets")
         
         try FileManager.default.createDirectory(at: relsDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: xlRelsDir, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: worksheetsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: xlWorksheetsDir, withIntermediateDirectories: true)
         
         // [Content_Types].xml
         try createContentTypes().write(to: tempDir.appendingPathComponent("[Content_Types].xml"), atomically: true, encoding: .utf8)
@@ -65,14 +72,15 @@ class SimpleXLSXWriter {
         // xl/sharedStrings.xml
         try createSharedStrings().write(to: xlDir.appendingPathComponent("sharedStrings.xml"), atomically: true, encoding: .utf8)
         
-        // xl/worksheets/sheetN.xml
+        // xl/worksheets/sheet1.xml, sheet2.xml, ...
         for (index, worksheet) in worksheets.enumerated() {
             let sheetXML = createWorksheet(worksheet, index: index)
-            try sheetXML.write(to: worksheetsDir.appendingPathComponent("sheet\(index + 1).xml"), atomically: true, encoding: .utf8)
+            let sheetPath = xlWorksheetsDir.appendingPathComponent("sheet\(index + 1).xml")
+            try sheetXML.write(to: sheetPath, atomically: true, encoding: .utf8)
         }
         
-        // Create ZIP using ZIPFoundation
-        let zipURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".xlsx")
+        // Zip the directory
+        let zipURL = tempDir.deletingLastPathComponent().appendingPathComponent("\(UUID().uuidString).xlsx")
         try FileManager.default.zipItem(at: tempDir, to: zipURL, shouldKeepParent: false)
         
         let data = try Data(contentsOf: zipURL)
@@ -116,17 +124,15 @@ class SimpleXLSXWriter {
         var xml = """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
         
         """
         
         for i in 1...worksheets.count {
-            xml += "    <Relationship Id=\"rId\(i)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet\(i).xml\"/>\n"
+            xml += "    <Relationship Id=\"rId\(i + 1)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet\(i).xml\"/>\n"
         }
         
-        let stylesId = worksheets.count + 1
         let stringsId = worksheets.count + 2
-        
-        xml += "    <Relationship Id=\"rId\(stylesId)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>\n"
         xml += "    <Relationship Id=\"rId\(stringsId)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>\n"
         xml += "</Relationships>"
         
@@ -142,7 +148,7 @@ class SimpleXLSXWriter {
         """
         
         for (index, worksheet) in worksheets.enumerated() {
-            xml += "        <sheet name=\"\(xmlEscape(worksheet.name))\" sheetId=\"\(index + 1)\" r:id=\"rId\(index + 1)\"/>\n"
+            xml += "        <sheet name=\"\(xmlEscape(worksheet.name))\" sheetId=\"\(index + 1)\" r:id=\"rId\(index + 2)\"/>\n"
         }
         
         xml += """
@@ -157,17 +163,19 @@ class SimpleXLSXWriter {
         """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-            <numFmts count="1">
+            <numFmts count="3">
                 <numFmt numFmtId="164" formatCode="0.00"/>
+                <numFmt numFmtId="165" formatCode="$#,##0.00"/>
+                <numFmt numFmtId="166" formatCode="€#,##0.00"/>
             </numFmts>
             <fonts count="2">
                 <font>
-                    <sz val="11"/>
-                    <name val="Calibri"/>
+                    <sz val="12"/>
+                    <name val="Arial"/>
                 </font>
                 <font>
-                    <sz val="11"/>
-                    <name val="Calibri"/>
+                    <sz val="12"/>
+                    <name val="Arial"/>
                     <b/>
                 </font>
             </fonts>
@@ -191,13 +199,15 @@ class SimpleXLSXWriter {
             <cellStyleXfs count="1">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
             </cellStyleXfs>
-            <cellXfs count="4">
+            <cellXfs count="6">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">
                     <alignment horizontal="center"/>
                 </xf>
                 <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+                <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+                <xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
             </cellXfs>
             <cellStyles count="1">
                 <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -234,11 +244,19 @@ class SimpleXLSXWriter {
             xml += "        <sheetView workbookViewId=\"0\"/>\n"
         }
         
-        xml += """
-            </sheetViews>
-            <sheetData>
+        xml += "    </sheetViews>\n"
         
-        """
+        // Add column widths if specified
+        if !worksheet.columnWidths.isEmpty {
+            xml += "    <cols>\n"
+            for (colIndex, width) in worksheet.columnWidths.sorted(by: { $0.key < $1.key }) {
+                let colNum = colIndex + 1
+                xml += "        <col min=\"\(colNum)\" max=\"\(colNum)\" width=\"\(width)\" customWidth=\"1\"/>\n"
+            }
+            xml += "    </cols>\n"
+        }
+        
+        xml += "    <sheetData>\n"
         
         for (rowIndex, row) in worksheet.rows.enumerated() {
             let rowNum = rowIndex + 1
@@ -266,6 +284,12 @@ class SimpleXLSXWriter {
                     let formatted = NSDecimalNumber(decimal: value).doubleValue
                     xml += "            <c r=\"\(cellRef)\" s=\"3\"><v>\(formatted)</v></c>\n"
                     
+                case .currency(let value, let currencyCode):
+                    let formatted = NSDecimalNumber(decimal: value).doubleValue
+                    // Style 4 = USD (165), Style 5 = EUR (166)
+                    let style = currencyCode == "USD" ? "4" : currencyCode == "EUR" ? "5" : "3"
+                    xml += "            <c r=\"\(cellRef)\" s=\"\(style)\"><v>\(formatted)</v></c>\n"
+                    
                 case .empty:
                     xml += "            <c r=\"\(cellRef)\"/>\n"
                 }
@@ -282,21 +306,20 @@ class SimpleXLSXWriter {
         return xml
     }
     
-    // MARK: - Utilities
+    // MARK: - Helpers
     
     private func columnLetter(_ index: Int) -> String {
-        var num = index
+        var column = index
         var result = ""
-        while num >= 0 {
-            result = String(UnicodeScalar(65 + (num % 26))!) + result
-            num = num / 26 - 1
-            if num < 0 { break }
+        while column >= 0 {
+            result = String(UnicodeScalar(65 + (column % 26))!) + result
+            column = (column / 26) - 1
         }
         return result
     }
     
-    private func xmlEscape(_ text: String) -> String {
-        text
+    private func xmlEscape(_ string: String) -> String {
+        string
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
