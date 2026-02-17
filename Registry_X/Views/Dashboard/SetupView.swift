@@ -57,6 +57,8 @@ struct SetupView: View {
     @State private var pendingMergeExport: EventExport?
     @State private var xlsExportData: Data?
     @State private var showingXLSShare = false
+    @State private var exportCompleted = false
+    @State private var exportCompletedColor: Color = .green
     
     // Derived Binding (Safe Unwrapping)
     private var draftBinding: Binding<DraftEventSettings> {
@@ -781,27 +783,33 @@ struct SetupView: View {
     
     var body: some View {
         bodyCore
-            .sheet(isPresented: $showingJSONShare) {
+            .sheet(isPresented: $showingJSONShare, onDismiss: {
+                if exportCompleted {
+                    exportCompleted = false
+                    showActionNotification("Export Successful", color: exportCompletedColor)
+                }
+            }) {
                 if let data = jsonExportData {
                     let username = authService.currentUser?.username ?? "Unknown"
                     let timestamp = formatTimestamp(Date())
                     ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json", onComplete: {
-                        showingJSONShare = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            showActionNotification("Export Successful", color: .purple)
-                        }
+                        exportCompleted = true
+                        exportCompletedColor = .purple
                     })
                 }
             }
-            .sheet(isPresented: $showingXLSShare) {
+            .sheet(isPresented: $showingXLSShare, onDismiss: {
+                if exportCompleted {
+                    exportCompleted = false
+                    showActionNotification("Export Successful", color: exportCompletedColor)
+                }
+            }) {
                 if let data = xlsExportData {
                     let username = authService.currentUser?.username ?? "Unknown"
                     let timestamp = formatTimestamp(Date())
                     ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx", onComplete: {
-                        showingXLSShare = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            showActionNotification("Export Successful", color: .green)
-                        }
+                        exportCompleted = true
+                        exportCompletedColor = .green
                     })
                 }
             }
