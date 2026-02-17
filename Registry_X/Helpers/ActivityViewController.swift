@@ -5,10 +5,12 @@ import UIKit
 struct ActivityViewController: UIViewControllerRepresentable {
     let activityItems: [Any]
     let fileName: String?
+    var onComplete: (() -> Void)?
     
-    init(activityItems: [Any], fileName: String? = nil) {
+    init(activityItems: [Any], fileName: String? = nil, onComplete: (() -> Void)? = nil) {
         self.activityItems = activityItems
         self.fileName = fileName
+        self.onComplete = onComplete
     }
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -37,6 +39,12 @@ struct ActivityViewController: UIViewControllerRepresentable {
             activityItems: items,
             applicationActivities: nil
         )
+        
+        controller.completionWithItemsHandler = { _, completed, _, _ in
+            if completed {
+                self.onComplete?()
+            }
+        }
         
         return controller
     }

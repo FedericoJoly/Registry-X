@@ -709,48 +709,8 @@ struct SetupView: View {
         .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: -2)
     }
     
-    var body: some View {
-        ZStack {
-            NavigationStack {
-                ZStack {
-                    Color(UIColor.systemGray6).ignoresSafeArea()
-                    
-                    VStack(spacing: 0) {
-                        // MARK: - Header (same as other tabs)
-                        if let user = authService.currentUser {
-                            EventInfoHeader(
-                                event: event,
-                                userFullName: user.fullName,
-                                onQuit: { handleQuit() }
-                            )
-                        } else {
-                            EventInfoHeader(
-                                event: event,
-                                userFullName: "Operator",
-                                onQuit: { handleQuit() }
-                            )
-                        }
-                        
-                        // MARK: - Category Grid
-                        ScrollView {
-                            categoryGrid
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                        }
-                        
-                        // MARK: - Event Actions Footer
-                        footerSection
-                    }
-                }
-                .navigationBarHidden(true)
-                .alert("Coming Soon", isPresented: $showingExportPlaceholder) { 
-                    Button("OK", role: .cancel) { }
-                } message: {
-                    Text("This feature will be available in a future version.")
-                }
-            }
-            
-            // Success Banner (Top) - Outside NavigationStack to stay at actual top
+    private var notificationBannerOverlay: some View {
+        Group {
             if showNotificationBanner {
                 VStack {
                     HStack {
@@ -767,7 +727,7 @@ struct SetupView: View {
                     .cornerRadius(12)
                     .shadow(radius: 5)
                     .padding(.horizontal)
-                    .padding(.top, 60) // Account for navigation bar
+                    .padding(.top, 60)
                     
                     Spacer()
                 }
@@ -775,24 +735,112 @@ struct SetupView: View {
                 .zIndex(999)
             }
         }
+    }
+    
+    private var mainContentView: some View {
+        NavigationStack {
+            ZStack {
+                Color(UIColor.systemGray6).ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // MARK: - Header (same as other tabs)
+                    if let user = authService.currentUser {
+                        EventInfoHeader(
+                            event: event,
+                            userFullName: user.fullName,
+                            onQuit: { handleQuit() }
+                        )
+                    } else {
+                        EventInfoHeader(
+                            event: event,
+                            userFullName: "Operator",
+                            onQuit: { handleQuit() }
+                        )
+                    }
+                    
+                    // MARK: - Category Grid
+                    ScrollView {
+                        categoryGrid
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                    }
+                    
+                    // MARK: - Event Actions Footer
+                    footerSection
+                }
+            }
+            .navigationBarHidden(true)
+            .alert("Coming Soon", isPresented: $showingExportPlaceholder) { 
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("This feature will be available in a future version.")
+            }
+        }
+    }
+    
+    
+    var body: some View {
+        bodyCore
+            .sheet(isPresented: $showingJSONShare) {
+                if let data = jsonExportData {
+                    let username = authService.currentUser?.username ?? "Unknown"
+                    let timestamp = formatTimestamp(Date())
+                    ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json", onComplete: {
+                        showingJSONShare = false
+                        showActionNotification("Export Successful", color: .purple)
+                    })
+                }
+            }
+            .sheet(isPresented: $showingXLSShare) {
+                if let data = xlsExportData {
+                    let username = authService.currentUser?.username ?? "Unknown"
+                    let timestamp = formatTimestamp(Date())
+                    ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx", onComplete: {
+                        showingXLSShare = false
+                        showActionNotification("Export Successful", color: .green)
+                    })
+                }
+            }
+            .sheet(isPresented: $showingMergeFilePicker) {
+                JSONFilePickerView(onFileSelected: { url in
+                    handleMergeFromJSON(fileURL: url)
+                })
+            }
+            .alert("Confirm Import", isPresented: $showingMergeConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    pendingMergeExport = nil
+                }
+                Button("OK") {
+                    performMerge()
+                }
+            } message: {
+                Text("Confirm to import '\(mergedEventName)'?")
+            }
+            .alert("Error", isPresented: $showingMergeDuplicateError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("This event has been imported already.")
+            }
+    }
+    
+    private var bodyCore: some View {
+        ZStack {
+            mainContentView
+            notificationBannerOverlay
+        }
         .onAppear {
             currencyService.modelContext = modelContext
             
             if draftSettings == nil {
                 draftSettings = DraftEventSettings(from: event)
-                // Store original payment methods for change detection
                 originalPaymentMethods = draftSettings?.paymentMethods ?? []
-                // Store baseline for change detection (before automatic rate fetch)
                 originalDraftSettings = draftSettings
             }
             
-            // Start polling timer for automatic change detection
             changeDetectionTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
                 checkForChanges()
             }
             
-            // Only auto-fetch rates for NEW events (no rates fetched yet)
-            // For existing events, rates should only update when user taps Refresh
             if event.ratesLastUpdated == nil {
                 Task {
                     await fetchAndPopulateRates()
@@ -800,12 +848,9 @@ struct SetupView: View {
             }
         }
         .onDisappear {
-            // Clean up timer when leaving Setup
             changeDetectionTimer?.invalidate()
             changeDetectionTimer = nil
         }
-        // DISABLED: Do not auto-fetch rates when currency code changes
-        // Rates should only update when creating a new event or when user clicks Refresh
         .onChange(of: draftSettings) { oldValue, newValue in
             if skipNextChangeDetection {
                 skipNextChangeDetection = false
@@ -851,44 +896,6 @@ struct SetupView: View {
         } message: {
             let count = event.transactions.count
             return Text("This will delete all \(count) transaction\(count == 1 ? "" : "s"). This action cannot be undone.")
-        }
-        .sheet(isPresented: $showingJSONShare) {
-           if let data = jsonExportData {
-                let username = authService.currentUser?.username ?? "Unknown"
-                let timestamp = formatTimestamp(Date())
-                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json")
-            }
-        }
-        .sheet(isPresented: $showingXLSShare) {
-            if let data = xlsExportData {
-                let username = authService.currentUser?.username ?? "Unknown"
-                let timestamp = formatTimestamp(Date())
-                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx", onComplete: {
-                    showingXLSShare = false
-                    showActionNotification("Export Successful", color: .green)
-                })
-            }
-        }
-        .sheet(isPresented: $showingMergeFilePicker) {
-            JSONFilePickerView(onFileSelected: { url in
-                handleMergeFromJSON(fileURL: url)
-            })
-        }
-
-        .alert("Confirm Import", isPresented: $showingMergeConfirmation) {
-            Button("Cancel", role: .cancel) {
-                pendingMergeExport = nil
-            }
-            Button("OK") {
-                performMerge()
-            }
-        } message: {
-            Text("Confirm to import '\(mergedEventName)'?")
-        }
-        .alert("Error", isPresented: $showingMergeDuplicateError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("This event has been imported already.")
         }
     }
     
