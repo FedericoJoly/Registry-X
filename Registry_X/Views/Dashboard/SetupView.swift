@@ -860,13 +860,7 @@ struct SetupView: View {
             if let data = xlsExportData {
                 let username = authService.currentUser?.username ?? "Unknown"
                 let timestamp = formatTimestamp(Date())
-                ActivityViewController(
-                    activityItems: [data],
-                    fileName: "\(event.name)_\(username)_\(timestamp).xlsx",
-                    onComplete: {
-                        showingXLSShare = false // Auto-dismiss after save
-                    }
-                )
+                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx")
             }
         }
         .sheet(isPresented: $showingMergeFilePicker) {
