@@ -124,9 +124,8 @@ class ExcelExportService {
         writer.addRow(to: currenciesIndex, values: [
             .text("Currency", bold: true, centered: true),
             .text("Payment Method", bold: true, centered: true),
-            .text("Count", bold: true, centered: true),
             .text("Total", bold: true, centered: true),
-            .empty  // Column E for currency totals
+            .empty  // Column D for currency totals
         ])
         
         // Collect stats by currency and method
@@ -165,19 +164,17 @@ class ExcelExportService {
             writer.addRow(to: currenciesIndex, values: [
                 .text(stats.currency),
                 .text(stats.method),
-                .number(Double(stats.count)),
-                .decimal(stats.total),
-                isLastOfCurrency ? .decimal(currencyTotals[stats.currency] ?? 0) : .empty
+                .currency(stats.total, currencyCode: stats.currency),
+                isLastOfCurrency ? .currency(currencyTotals[stats.currency] ?? 0, currencyCode: stats.currency) : .empty
             ])
             
             currentCurrency = stats.currency
         }
         
         // Add category subtotals section
-        writer.addRow(to: currenciesIndex, values: [.empty, .empty, .empty, .empty, .empty])
+        writer.addRow(to: currenciesIndex, values: [.empty, .empty, .empty, .empty])
         writer.addRow(to: currenciesIndex, values: [
             .text("Category Totals", bold: true, centered: true),
-            .empty,
             .empty,
             .text("Subtotal", bold: true, centered: true),
             .empty
@@ -217,7 +214,6 @@ class ExcelExportService {
             writer.addRow(to: currenciesIndex, values: [
                 .text(category.name),
                 .empty,
-                .empty,
                 .currency(total, currencyCode: event.currencyCode),
                 .empty
             ])
@@ -227,8 +223,7 @@ class ExcelExportService {
         writer.addRow(to: currenciesIndex, values: [
             .text("Total", bold: true),
             .empty,
-            .empty,
-            .decimal(categoryGrandTotal),
+            .currency(categoryGrandTotal, currencyCode: event.currencyCode),
             .empty
         ])
 
@@ -237,8 +232,8 @@ class ExcelExportService {
         // Set Currencies sheet column widths
         writer.setColumnWidth(sheetIndex: currenciesIndex, column: 0, width: 20) // Currency/Category
         writer.setColumnWidth(sheetIndex: currenciesIndex, column: 1, width: 20) // Payment Method
-        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 2, width: 12) // Units
-        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 3, width: 15) // Total
+        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 2, width: 15) // Total
+        writer.setColumnWidth(sheetIndex: currenciesIndex, column: 3, width: 15) // Currency Total
         // Sheet 3: Products Summary - with currency & payment method breakdown
         let productsIndex = writer.addWorksheet(name: "Products", frozenRows: 1)
         
@@ -247,7 +242,8 @@ class ExcelExportService {
             .text("Currency", bold: true, centered: true),
             .text("Payment Method", bold: true, centered: true),
             .text("Units", bold: true, centered: true),
-            .text("Total", bold: true, centered: true)
+            .text("Total", bold: true, centered: true),
+            .text("Average", bold: true, centered: true)
         ])
         
         // Build full product data structure with currency sections (same as TotalsView)
@@ -338,23 +334,27 @@ class ExcelExportService {
         var grandTotal: Decimal = 0
         for product in sortedProducts {
             // Product header row (bold entire row)
+            let productAverage = product.totalUnits > 0 ? product.totalInMain / Decimal(product.totalUnits) : 0
             writer.addRow(to: productsIndex, values: [
                 .text(product.name, bold: true),
                 .empty,
                 .empty,
                 .number(Double(product.totalUnits), bold: true), // Bold units
-                .currency(product.totalInMain, currencyCode: event.currencyCode, bold: true) // Bold total
+                .currency(product.totalInMain, currencyCode: event.currencyCode, bold: true), // Bold total
+                .currency(productAverage, currencyCode: event.currencyCode, bold: true) // Bold average
             ])
             
             // Currency and payment method rows
             for section in product.currencySections {
                 for method in section.methods {
+                    let methodAverage = method.units > 0 ? method.subtotal / Decimal(method.units) : 0
                     writer.addRow(to: productsIndex, values: [
                         .empty,
                         .text(section.code),
                         .text(method.method),
                         .number(Double(method.units)),
-                        .currency(method.subtotal, currencyCode: section.code) // Currency format
+                        .currency(method.subtotal, currencyCode: section.code), // Currency format
+                        .currency(methodAverage, currencyCode: section.code) // Average
                     ])
                 }
             }
@@ -367,7 +367,8 @@ class ExcelExportService {
             .empty,
             .empty,
             .empty,
-            .currency(grandTotal, currencyCode: event.currencyCode)
+            .currency(grandTotal, currencyCode: event.currencyCode),
+            .empty
         ])
         
         
@@ -377,6 +378,7 @@ class ExcelExportService {
         writer.setColumnWidth(sheetIndex: productsIndex, column: 2, width: 18) // Payment method
         writer.setColumnWidth(sheetIndex: productsIndex, column: 3, width: 10) // Units
         writer.setColumnWidth(sheetIndex: productsIndex, column: 4, width: 15) // Total
+        writer.setColumnWidth(sheetIndex: productsIndex, column: 5, width: 15) // Average
         // Sheet 4: Groups (matching TotalsView Groups tab format)
         let groupsIndex = writer.addWorksheet(name: "Groups", frozenRows: 1)
         
