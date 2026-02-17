@@ -13,9 +13,9 @@ class SimpleXLSXWriter {
     
     enum CellValue {
         case text(String, bold: Bool = false, centered: Bool = false)
-        case number(Double)
+        case number(Double, bold: Bool = false)
         case decimal(Decimal)
-        case currency(Decimal, currencyCode: String) // Currency formatting
+        case currency(Decimal, currencyCode: String, bold: Bool = false) // Currency formatting
         case empty
     }
     
@@ -201,7 +201,7 @@ class SimpleXLSXWriter {
             <cellStyleXfs count="1">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
             </cellStyleXfs>
-            <cellXfs count="9">
+            <cellXfs count="13">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">
@@ -213,6 +213,10 @@ class SimpleXLSXWriter {
                 <xf numFmtId="167" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
                 <xf numFmtId="168" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
                 <xf numFmtId="168" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+                <xf numFmtId="165" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+                <xf numFmtId="166" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+                <xf numFmtId="167" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+                <xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
             </cellXfs>
             <cellStyles count="1">
                 <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -282,19 +286,29 @@ class SimpleXLSXWriter {
                     }
                     xml += "            <c r=\"\(cellRef)\"\(style) t=\"inlineStr\"><is><t>\(xmlEscape(value))</t></is></c>\n"
                     
-                case .number(let value):
-                    // Style 7 = integer format (no decimals), Style 3 = decimal format
-                    let style = value == floor(value) ? "7" : "3"
+                case .number(let value, let bold):
+                    // Style 7/8 = integer, Style 3/12 = decimal (8/12 = bold)
+                    let style: String
+                    if value == floor(value) {
+                        style = bold ? "8" : "7"
+                    } else {
+                        style = bold ? "12" : "3"
+                    }
                     xml += "            <c r=\"\(cellRef)\" s=\"\(style)\"><v>\(value)</v></c>\n"
                     
                 case .decimal(let value):
                     let formatted = NSDecimalNumber(decimal: value).doubleValue
                     xml += "            <c r=\"\(cellRef)\" s=\"3\"><v>\(formatted)</v></c>\n"
                     
-                case .currency(let value, let currencyCode):
+                case .currency(let value, let currencyCode, let bold):
                     let formatted = NSDecimalNumber(decimal: value).doubleValue
-                    // Style 4 = USD (165), Style 5 = EUR (166), Style 6 = GBP (167)
-                    let style = currencyCode == "USD" ? "4" : currencyCode == "EUR" ? "5" : currencyCode == "GBP" ? "6" : "3"
+                    // Styles: 4/9=USD, 5/10=EUR, 6/11=GBP (9/10/11 = bold)
+                    let style: String
+                    if bold {
+                        style = currencyCode == "USD" ? "9" : currencyCode == "EUR" ? "10" : currencyCode == "GBP" ? "11" : "12"
+                    } else {
+                        style = currencyCode == "USD" ? "4" : currencyCode == "EUR" ? "5" : currencyCode == "GBP" ? "6" : "3"
+                    }
                     xml += "            <c r=\"\(cellRef)\" s=\"\(style)\"><v>\(formatted)</v></c>\n"
                     
                 case .empty:

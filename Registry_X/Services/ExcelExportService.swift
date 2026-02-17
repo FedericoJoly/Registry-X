@@ -337,13 +337,13 @@ class ExcelExportService {
         // Output products with currency/method breakdown
         var grandTotal: Decimal = 0
         for product in sortedProducts {
-            // Product header row (bold)
+            // Product header row (bold entire row)
             writer.addRow(to: productsIndex, values: [
                 .text(product.name, bold: true),
                 .empty,
                 .empty,
-                .number(Double(product.totalUnits)), // Units as number (integer, no decimals)
-                .currency(product.totalInMain, currencyCode: event.currencyCode) // Currency format
+                .number(Double(product.totalUnits), bold: true), // Bold units
+                .currency(product.totalInMain, currencyCode: event.currencyCode, bold: true) // Bold total
             ])
             
             // Currency and payment method rows
