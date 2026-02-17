@@ -604,7 +604,8 @@ struct SetupView: View {
             products: draftBinding.products,
             availableCategories: draftBinding.categories.wrappedValue,
             currencyCode: draftBinding.currencyCode.wrappedValue,
-            isLocked: event.isLocked
+            isLocked: event.isLocked,
+            event: event
         )
         .padding(.top, 20)
         .padding(.bottom, 20)

@@ -5,6 +5,7 @@ struct SetupProductsView: View {
     var availableCategories: [DraftCategory]
     var currencyCode: String
     var isLocked: Bool
+    var event: Event // Added to check transactions
     
     // Sheet State
     @State private var showingAddSheet = false
@@ -14,6 +15,7 @@ struct SetupProductsView: View {
     // Deletion State
     @State private var showingDeleteAlert = false
     @State private var productIdToDelete: UUID?
+    @State private var showingTransactedProductAlert = false // New alert
     
     // Reordering State
     @State private var isEditingMode = false
@@ -174,6 +176,13 @@ struct SetupProductsView: View {
         } message: {
             Text("Are you sure you want to delete this product?")
         }
+        
+        // New alert for transacted products
+        .alert("Can't Delete Transacted Product", isPresented: $showingTransactedProductAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("This product has been used in transactions and cannot be deleted. Consider disabling it instead.")
+        }
     }
     
     // MARK: - Logic
@@ -217,7 +226,20 @@ struct SetupProductsView: View {
         }
     }
     
+    
     private func deleteProduct(id: UUID) {
+        // Check if product has been used in any transactions
+        guard let product = products.first(where: { $0.id == id }) else { return }
+        
+        let isUsedInTransactions = event.transactions.contains { transaction in
+            transaction.lineItems.contains { $0.productName == product.name }
+        }
+        
+        if isUsedInTransactions {
+            showingTransactedProductAlert = true
+            return
+        }
+        
         products.removeAll { $0.id == id }
     }
     
@@ -412,15 +434,4 @@ struct ProductFormSheet: View {
             }
         }
     }
-}
-
-#Preview {
-    SetupProductsView(
-        products: .constant([
-            DraftProduct(name: "Test Product", price: 9.99, categoryId: nil, subgroup: "Large", isActive: true, isPromo: false, sortOrder: 0)
-        ]),
-        availableCategories: [],
-        currencyCode: "USD",
-        isLocked: false
-    )
 }
