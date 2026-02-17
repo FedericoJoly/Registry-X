@@ -163,10 +163,12 @@ class SimpleXLSXWriter {
         """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-            <numFmts count="3">
+            <numFmts count="5">
                 <numFmt numFmtId="164" formatCode="0.00"/>
                 <numFmt numFmtId="165" formatCode="$#,##0.00"/>
                 <numFmt numFmtId="166" formatCode="€#,##0.00"/>
+                <numFmt numFmtId="167" formatCode="£#,##0.00"/>
+                <numFmt numFmtId="168" formatCode="0"/>
             </numFmts>
             <fonts count="2">
                 <font>
@@ -199,7 +201,7 @@ class SimpleXLSXWriter {
             <cellStyleXfs count="1">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
             </cellStyleXfs>
-            <cellXfs count="6">
+            <cellXfs count="9">
                 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
                 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">
@@ -208,6 +210,9 @@ class SimpleXLSXWriter {
                 <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
                 <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
                 <xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+                <xf numFmtId="167" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+                <xf numFmtId="168" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+                <xf numFmtId="168" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
             </cellXfs>
             <cellStyles count="1">
                 <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -278,7 +283,9 @@ class SimpleXLSXWriter {
                     xml += "            <c r=\"\(cellRef)\"\(style) t=\"inlineStr\"><is><t>\(xmlEscape(value))</t></is></c>\n"
                     
                 case .number(let value):
-                    xml += "            <c r=\"\(cellRef)\" s=\"3\"><v>\(value)</v></c>\n"
+                    // Style 7 = integer format (no decimals), Style 3 = decimal format
+                    let style = value == floor(value) ? "7" : "3"
+                    xml += "            <c r=\"\(cellRef)\" s=\"\(style)\"><v>\(value)</v></c>\n"
                     
                 case .decimal(let value):
                     let formatted = NSDecimalNumber(decimal: value).doubleValue
@@ -286,8 +293,8 @@ class SimpleXLSXWriter {
                     
                 case .currency(let value, let currencyCode):
                     let formatted = NSDecimalNumber(decimal: value).doubleValue
-                    // Style 4 = USD (165), Style 5 = EUR (166)
-                    let style = currencyCode == "USD" ? "4" : currencyCode == "EUR" ? "5" : "3"
+                    // Style 4 = USD (165), Style 5 = EUR (166), Style 6 = GBP (167)
+                    let style = currencyCode == "USD" ? "4" : currencyCode == "EUR" ? "5" : currencyCode == "GBP" ? "6" : "3"
                     xml += "            <c r=\"\(cellRef)\" s=\"\(style)\"><v>\(formatted)</v></c>\n"
                     
                 case .empty:

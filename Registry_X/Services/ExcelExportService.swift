@@ -342,7 +342,7 @@ class ExcelExportService {
                 .text(product.name, bold: true),
                 .empty,
                 .empty,
-                .text(String(product.totalUnits), bold: true), // Bold units
+                .number(Double(product.totalUnits)), // Units as number (integer, no decimals)
                 .currency(product.totalInMain, currencyCode: event.currencyCode) // Currency format
             ])
             
