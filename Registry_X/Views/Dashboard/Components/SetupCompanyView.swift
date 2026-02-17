@@ -2,6 +2,10 @@ import SwiftUI
 
 struct SetupCompanyView: View {
     @Binding var draft: DraftEventSettings
+    var isLocked: Bool = false
+    
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingEmailError = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -23,6 +27,7 @@ struct SetupCompanyView: View {
                     .foregroundColor(.secondary)
                 TextField("Enter company name", text: $draft.companyName)
                     .textFieldStyle(.roundedBorder)
+                    .disabled(isLocked)
                 Text("Used in Stripe payments and receipts")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -35,6 +40,7 @@ struct SetupCompanyView: View {
                     .foregroundColor(.secondary)
                 TextField("e.g., Sales Team", text: $draft.fromName)
                     .textFieldStyle(.roundedBorder)
+                    .disabled(isLocked)
                 Text("Display name for outgoing emails")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -49,6 +55,7 @@ struct SetupCompanyView: View {
                     .textFieldStyle(.roundedBorder)
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
+                    .disabled(isLocked)
                 
                 if !draft.fromEmail.isEmpty && !isValidEmail(draft.fromEmail) {
                     HStack(spacing: 5) {
@@ -68,6 +75,31 @@ struct SetupCompanyView: View {
         .padding()
         .background(Color(.systemBackground))
         .cornerRadius(10)
+        .opacity(isLocked ? 0.6 : 1.0)
+        .navigationBarBackButtonHidden(hasInvalidEmail)
+        .toolbar {
+            if hasInvalidEmail {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        showingEmailError = true
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                    }
+                }
+            }
+        }
+        .alert("Invalid Email", isPresented: $showingEmailError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please enter a valid email address or clear the field before going back.")
+        }
+    }
+    
+    private var hasInvalidEmail: Bool {
+        !draft.fromEmail.isEmpty && !isValidEmail(draft.fromEmail)
     }
     
     private func isValidEmail(_ email: String) -> Bool {

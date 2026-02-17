@@ -684,6 +684,8 @@ struct PanelView: View {
             // 3. Products Pager - fixed height based on mode
             productPagerView
                 .frame(height: event.areCategoriesEnabled ? 310 : 396) // 7 rows for multi, 9 for single @ 44pt each
+                .disabled(event.isLocked)
+                .opacity(event.isLocked ? 0.5 : 1.0)
             
             // 4. Spacer to ensure products touch footer
             Spacer(minLength: 0)
@@ -716,6 +718,8 @@ struct PanelView: View {
                     showingPaymentMethodSheet = true
                 }
             )
+            .disabled(event.isLocked)
+            .opacity(event.isLocked ? 0.5 : 1.0)
         }
         .background(Color(UIColor.systemGroupedBackground))
         .overlay(

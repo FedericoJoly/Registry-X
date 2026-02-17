@@ -653,7 +653,7 @@ struct SetupView: View {
     
     private var companyDetail: some View {
         ScrollView {
-            SetupCompanyView(draft: draftBinding)
+            SetupCompanyView(draft: draftBinding, isLocked: event.isLocked)
             .padding(.top, 20)
             .padding(.bottom, 20)
         }
@@ -686,9 +686,9 @@ struct SetupView: View {
                 }
                 SettingsActionButton(title: "Export", icon: "square.and.arrow.up", color: .purple) { exportJSON() }
             }
-            .disabled(event.isLocked)
-            .opacity(event.isLocked ? 0.6 : 1.0)
         }
+        .disabled(event.isLocked)
+        .opacity(event.isLocked ? 0.6 : 1.0)
         .padding(.bottom, 12)
     }
     
