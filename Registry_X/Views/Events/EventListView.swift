@@ -48,7 +48,6 @@ struct EventListView: View {
     @State private var notificationColor: Color = .green
     
     var body: some View {
-        ZStack {
                 // MARK: - Navigation Stack (Wraps Body Content Only)
                 NavigationStack {
                     ZStack {
@@ -312,7 +311,9 @@ struct EventListView: View {
             if let folderURL = backupFolderURL {
                 ActivityViewController(activityItems: [folderURL], onComplete: {
                     showingBackupShare = false
-                    showActionNotification("Backup Successful", color: .green)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        showActionNotification("Backup Successful", color: .green)
+                    }
                 })
                     .onDisappear {
                         // Clean up temp folder when share sheet dismisses
@@ -451,32 +452,32 @@ struct EventListView: View {
     ) { result in
         handleImport(result: result)
     }
-
-            // Notification Banner Overlay
-            if showNotificationBanner {
-                VStack {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.white)
-                        Text(notificationMessage)
-                            .foregroundStyle(.white)
-                            .font(.subheadline)
-                            .bold()
-                        Spacer()
-                    }
-                    .padding()
-                    .background(notificationColor)
-                    .cornerRadius(12)
-                    .shadow(radius: 5)
-                    .padding(.horizontal)
-                    .padding(.top, 60)
-                    
+    .overlay {
+        if showNotificationBanner {
+            VStack {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.white)
+                    Text(notificationMessage)
+                        .foregroundStyle(.white)
+                        .font(.subheadline)
+                        .bold()
                     Spacer()
                 }
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(999)
+                .padding()
+                .background(notificationColor)
+                .cornerRadius(12)
+                .shadow(radius: 5)
+                .padding(.horizontal)
+                .padding(.top, 60)
+                
+                Spacer()
             }
-        } // ZStack
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .zIndex(999)
+        }
+    }
+
     } // body
     }
     

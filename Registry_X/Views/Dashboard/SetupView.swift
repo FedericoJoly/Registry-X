@@ -787,7 +787,9 @@ struct SetupView: View {
                     let timestamp = formatTimestamp(Date())
                     ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).json", onComplete: {
                         showingJSONShare = false
-                        showActionNotification("Export Successful", color: .purple)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            showActionNotification("Export Successful", color: .purple)
+                        }
                     })
                 }
             }
@@ -797,7 +799,9 @@ struct SetupView: View {
                     let timestamp = formatTimestamp(Date())
                     ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx", onComplete: {
                         showingXLSShare = false
-                        showActionNotification("Export Successful", color: .green)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            showActionNotification("Export Successful", color: .green)
+                        }
                     })
                 }
             }
