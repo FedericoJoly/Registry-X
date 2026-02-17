@@ -41,7 +41,9 @@ struct SetupView: View {
     @State private var showingDiscardAlert = false
 
     @State private var showingExportPlaceholder = false
-    @State private var showSaveConfirmation = false
+    @State private var showNotificationBanner = false
+    @State private var notificationMessage = ""
+    @State private var notificationColor: Color = .blue
     @State private var showingDuplicateNameError = false
     @State private var skipNextChangeDetection = false // Prevent false positive after save
     @State private var changeDetectionTimer: Timer?
@@ -49,7 +51,6 @@ struct SetupView: View {
     @State private var jsonExportData: Data?
     @State private var showingJSONShare = false
     @State private var showingMergeFilePicker = false
-    @State private var showingMergeSuccess = false
     @State private var mergedEventName = ""
     @State private var showingMergeDuplicateError = false
     @State private var showingMergeConfirmation = false
@@ -97,6 +98,15 @@ struct SetupView: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyMMdd-HHmm"
         return formatter.string(from: date)
+    }
+    
+    private func showActionNotification(_ message: String, color: Color) {
+        notificationMessage = message
+        notificationColor = color
+        withAnimation { showNotificationBanner = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { showNotificationBanner = false }
+        }
     }
     
     // MARK: - Actions
@@ -381,15 +391,11 @@ struct SetupView: View {
         originalPaymentMethods = currentPaymentMethods
         
         // Show confirmation
-        withAnimation { showSaveConfirmation = true }
+        showActionNotification("Settings Saved", color: .blue)
         
         // Reset external state
         triggerSave = false
         hasUnsavedChanges = false
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation { showSaveConfirmation = false }
-        }
     }
     
     private func resetEvent() {
@@ -402,13 +408,8 @@ struct SetupView: View {
         // Save the changes
         try? modelContext.save()
         
-        // Show confirmation (reusing same toast)
-        withAnimation { showSaveConfirmation = true }
-        
-        // Hide after 2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            withAnimation { showSaveConfirmation = false }
-        }
+        // Show confirmation
+        showActionNotification("Reset Complete", color: .orange)
     }
     
     private func handleMergeFromJSON(fileURL: URL) {
@@ -489,8 +490,10 @@ struct SetupView: View {
             draftSettings = DraftEventSettings(from: event)
             originalPaymentMethods = draftSettings?.paymentMethods ?? []
             
-            // Show success alert
-            showingMergeSuccess = true
+            // Show success notification
+            let mergeMsg = "'\(mergedEventName)' Merge Complete"
+            let mergeColor = Color(red: 0.8, green: 0.6, blue: 0.0)
+            showActionNotification(mergeMsg, color: mergeColor)
             
             // Clear pending export
             pendingMergeExport = nil
@@ -748,19 +751,19 @@ struct SetupView: View {
             }
             
             // Success Banner (Top) - Outside NavigationStack to stay at actual top
-            if showSaveConfirmation {
+            if showNotificationBanner {
                 VStack {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.white)
-                        Text("Settings Saved")
+                        Text(notificationMessage)
                             .foregroundStyle(.white)
                             .font(.subheadline)
                             .bold()
                         Spacer()
                     }
                     .padding()
-                    .background(Color.green)
+                    .background(notificationColor)
                     .cornerRadius(12)
                     .shadow(radius: 5)
                     .padding(.horizontal)
@@ -860,7 +863,10 @@ struct SetupView: View {
             if let data = xlsExportData {
                 let username = authService.currentUser?.username ?? "Unknown"
                 let timestamp = formatTimestamp(Date())
-                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx")
+                ActivityViewController(activityItems: [data], fileName: "\(event.name)_\(username)_\(timestamp).xlsx", onComplete: {
+                    showingXLSShare = false
+                    showActionNotification("Export Successful", color: .green)
+                })
             }
         }
         .sheet(isPresented: $showingMergeFilePicker) {
@@ -868,11 +874,7 @@ struct SetupView: View {
                 handleMergeFromJSON(fileURL: url)
             })
         }
-        .alert("Event Merged", isPresented: $showingMergeSuccess) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Event '\(mergedEventName)' imported.")
-        }
+
         .alert("Confirm Import", isPresented: $showingMergeConfirmation) {
             Button("Cancel", role: .cancel) {
                 pendingMergeExport = nil
