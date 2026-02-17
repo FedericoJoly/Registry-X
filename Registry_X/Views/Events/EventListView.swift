@@ -42,7 +42,13 @@ struct EventListView: View {
     @State private var backupFolderURL: URL?
     @State private var isBackingUp = false
     
+    // Notification banner
+    @State private var showNotificationBanner = false
+    @State private var notificationMessage = ""
+    @State private var notificationColor: Color = .green
+    
     var body: some View {
+        ZStack {
                 // MARK: - Navigation Stack (Wraps Body Content Only)
                 NavigationStack {
                     ZStack {
@@ -304,7 +310,10 @@ struct EventListView: View {
         }
         .sheet(isPresented: $showingBackupShare) {
             if let folderURL = backupFolderURL {
-                ActivityViewController(activityItems: [folderURL])
+                ActivityViewController(activityItems: [folderURL], onComplete: {
+                    showingBackupShare = false
+                    showActionNotification("Backup Successful", color: .green)
+                })
                     .onDisappear {
                         // Clean up temp folder when share sheet dismisses
                         isBackingUp = false
@@ -344,17 +353,17 @@ struct EventListView: View {
     
     // LOCK ALERT
     .alert("Lock Event", isPresented: $showingLockAlert) {
-        SecureField("Enter PIN", text: $lockPin)
+        SecureField("Enter 6-digit PIN", text: $lockPin)
             .keyboardType(.numberPad)
         Button("Lock") {
-            if let target = eventToLock, !lockPin.isEmpty {
+            if let target = eventToLock, lockPin.count == 6, lockPin.allSatisfy({ $0.isNumber }) {
                 target.pinCode = lockPin
                 target.isLocked = true
             }
         }
         Button("Cancel", role: .cancel) { }
     } message: {
-        Text("Set a PIN code to lock this event.")
+        Text("Set a 6-digit PIN code to lock this event.")
     }
     
     // UNLOCK ALERT
@@ -443,7 +452,32 @@ struct EventListView: View {
         handleImport(result: result)
     }
 
-}
+            // Notification Banner Overlay
+            if showNotificationBanner {
+                VStack {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.white)
+                        Text(notificationMessage)
+                            .foregroundStyle(.white)
+                            .font(.subheadline)
+                            .bold()
+                        Spacer()
+                    }
+                    .padding()
+                    .background(notificationColor)
+                    .cornerRadius(12)
+                    .shadow(radius: 5)
+                    .padding(.horizontal)
+                    .padding(.top, 60)
+                    
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(999)
+            }
+        } // ZStack
+    } // body
     }
     
     // MARK: - Logic Helpers
@@ -732,6 +766,15 @@ struct EventListView: View {
         }
     }
     
+    private func showActionNotification(_ message: String, color: Color) {
+        notificationMessage = message
+        notificationColor = color
+        withAnimation { showNotificationBanner = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { showNotificationBanner = false }
+        }
+    }
+    
     private func handleImport(result: Result<[URL], Error>) {
         do {
             guard let selectedFile = try result.get().first else {
@@ -765,6 +808,7 @@ return
             }
             
             print("Successfully imported event: \(newEvent.name)")
+            showActionNotification("'\(newEvent.name)' Imported", color: .purple)
             
         } catch let decodingError as DecodingError {
             importError = "Invalid JSON format: \(decodingError.localizedDescription)"
