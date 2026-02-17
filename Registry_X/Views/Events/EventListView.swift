@@ -646,13 +646,12 @@ struct EventListView: View {
              let newTrans = Transaction(timestamp: trans.timestamp, totalAmount: trans.totalAmount, currencyCode: trans.currencyCode, note: trans.note, paymentMethod: trans.paymentMethod)
              newTrans.event = newEvent
              modelContext.insert(newTrans)
-             for item in trans.lineItems {
-                 let newItem = LineItem(productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, subgroup: item.subgroup)
-                 // Link to new product by name
-                 if let originalProduct = item.product,
-                    let newProduct = newEvent.products.first(where: { $0.name == originalProduct.name }) {
-                     newItem.product = newProduct
-                 }
+              for item in trans.lineItems {
+                  let newItem = LineItem(productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, subgroup: item.subgroup)
+                  // Link to new product by productName (avoid accessing invalidated product relationship)
+                  if let newProduct = newEvent.products.first(where: { $0.name == item.productName }) {
+                      newItem.product = newProduct
+                  }
                  newTrans.lineItems.append(newItem)
                  modelContext.insert(newItem)
              }
