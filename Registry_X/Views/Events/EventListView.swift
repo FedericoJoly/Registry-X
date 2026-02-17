@@ -560,8 +560,9 @@ struct EventListView: View {
         
         // Copy Promos with proper category and product references
         var productIdMap: [UUID: Product] = [:]
-        // Build product map for promo references
-        for (index, prod) in original.products.enumerated() {
+        // Build product map for promo references (only non-deleted products)
+        let activeProducts = original.products.filter({ !$0.isDeleted })
+        for (index, prod) in activeProducts.enumerated() {
             productIdMap[prod.id] = newEvent.products[index]
         }
         
