@@ -539,8 +539,9 @@ struct EventListView: View {
             categoryIdMap[cat.id] = newCat
         }
         
-        // Copy Products with all properties
-        for prod in original.products {
+        
+        // Copy Products with all properties (filter out deleted products)
+        for prod in original.products.filter({ !$0.isDeleted }) {
             // Map category relationship
             let linkedCategory = prod.category != nil ? categoryIdMap[prod.category!.id] : nil
             
