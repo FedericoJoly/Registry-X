@@ -5,10 +5,12 @@ import UIKit
 struct ActivityViewController: UIViewControllerRepresentable {
     let activityItems: [Any]
     let fileName: String?
+    var onComplete: (() -> Void)? // Completion handler for auto-dismiss
     
-    init(activityItems: [Any], fileName: String? = nil) {
+    init(activityItems: [Any], fileName: String? = nil, onComplete: (() -> Void)? = nil) {
         self.activityItems = activityItems
         self.fileName = fileName
+        self.onComplete = onComplete
     }
     
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -33,10 +35,18 @@ struct ActivityViewController: UIViewControllerRepresentable {
             }
         }
         
+        
         let controller = UIActivityViewController(
             activityItems: items,
             applicationActivities: nil
         )
+        
+        // Set completion handler to auto-dismiss after user action
+        controller.completionWithItemsHandler = { _, completed, _, _ in
+            if completed {
+                self.onComplete?()
+            }
+        }
         
         return controller
     }
