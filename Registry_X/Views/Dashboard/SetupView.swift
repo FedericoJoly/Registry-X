@@ -47,6 +47,7 @@ struct SetupView: View {
     @State private var showingDuplicateNameError = false
     @State private var skipNextChangeDetection = false // Prevent false positive after save
     @State private var changeDetectionTimer: Timer?
+    @State private var autoFinaliseTimer: Timer?
     @State private var showingResetEventConfirmation = false
     @State private var jsonExportData: Data?
     @State private var showingJSONShare = false
@@ -136,6 +137,7 @@ struct SetupView: View {
         event.defaultProductBackgroundColor = draft.defaultProductBackgroundColor
         event.ratesLastUpdated = draft.ratesLastUpdated
         event.lastModified = Date()
+        event.closingDate = draft.closingDate
         
         // Sync Rates (Delete All + Re-insert Strategy for Simplicity)
         // In production with transactions, be careful not to delete history if linked.
@@ -414,6 +416,19 @@ struct SetupView: View {
         
         // Show confirmation
         showActionNotification("Reset Complete", color: .orange)
+    }
+    
+    private func checkAutoFinalise() {
+        guard let closingDate = event.closingDate,
+              !event.isFinalised,
+              Date() >= closingDate else { return }
+        
+        // Clear the closing date so it doesn't re-trigger
+        event.closingDate = nil
+        draftSettings?.closingDate = nil
+        try? modelContext.save()
+        
+        finaliseEvent()
     }
     
     private func finaliseEvent() {
@@ -933,6 +948,13 @@ struct SetupView: View {
                 checkForChanges()
             }
             
+            // Auto-finalise timer: check every 30 seconds
+            autoFinaliseTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+                checkAutoFinalise()
+            }
+            // Also check immediately on appear
+            checkAutoFinalise()
+            
             if event.ratesLastUpdated == nil {
                 Task {
                     await fetchAndPopulateRates()
@@ -942,6 +964,8 @@ struct SetupView: View {
         .onDisappear {
             changeDetectionTimer?.invalidate()
             changeDetectionTimer = nil
+            autoFinaliseTimer?.invalidate()
+            autoFinaliseTimer = nil
         }
         .onChange(of: draftSettings) { oldValue, newValue in
             if skipNextChangeDetection {
@@ -1105,6 +1129,7 @@ struct DraftEventSettings: Equatable {
     var paymentMethods: [PaymentMethodOption]
     var changeId: UUID = UUID() // Used to force change detection
     var ratesLastUpdated: Date?
+    var closingDate: Date?
     
     // Stripe Integration Configuration
     var stripeIntegrationEnabled: Bool
@@ -1132,6 +1157,7 @@ struct DraftEventSettings: Equatable {
         self.arePromosEnabled = event.arePromosEnabled
         self.defaultProductBackgroundColor = event.defaultProductBackgroundColor
         self.ratesLastUpdated = event.ratesLastUpdated
+        self.closingDate = event.closingDate
         
         // Migrate to new currencies model if needed
         if !event.currencies.isEmpty {

@@ -35,7 +35,9 @@ final class Event {
     var name: String
     var date: Date
     var isLocked: Bool
+    var isFinalised: Bool = false
     var pinCode: String?
+    var closingDate: Date?
     
     // Relationships
     @Relationship(deleteRule: .cascade) var products: [Product] = []
@@ -76,11 +78,12 @@ final class Event {
     // Receipt Configuration (per payment method)
     var receiptSettingsData: Data? // Stores [String: Bool] mapping (method name -> enabled)
     
-    init(id: UUID = UUID(), name: String, date: Date, isLocked: Bool = false, pinCode: String? = nil, currencyCode: String = "USD", isTotalRoundUp: Bool = true, areCategoriesEnabled: Bool = true, arePromosEnabled: Bool = true, defaultProductBackgroundColor: String = "#FFFFFF", creatorName: String = "Unknown", creatorId: UUID? = nil, ratesLastUpdated: Date? = nil, lastModified: Date = Date(), stripeBackendURL: String? = nil, stripePublishableKey: String? = nil, stripeCompanyName: String? = nil, stripeLocationId: String? = nil, bizumPhoneNumber: String? = nil, receiptSettingsData: Data? = nil) {
+    init(id: UUID = UUID(), name: String, date: Date, isLocked: Bool = false, isFinalised: Bool = false, pinCode: String? = nil, currencyCode: String = "USD", isTotalRoundUp: Bool = true, areCategoriesEnabled: Bool = true, arePromosEnabled: Bool = true, defaultProductBackgroundColor: String = "#FFFFFF", creatorName: String = "Unknown", creatorId: UUID? = nil, ratesLastUpdated: Date? = nil, lastModified: Date = Date(), stripeBackendURL: String? = nil, stripePublishableKey: String? = nil, stripeCompanyName: String? = nil, stripeLocationId: String? = nil, bizumPhoneNumber: String? = nil, receiptSettingsData: Data? = nil) {
         self.id = id
         self.name = name
         self.date = date
         self.isLocked = isLocked
+        self.isFinalised = isFinalised
         self.pinCode = pinCode
         self.currencyCode = currencyCode
         self.isTotalRoundUp = isTotalRoundUp
@@ -100,6 +103,13 @@ final class Event {
         self.fromName = fromName
         self.fromEmail = fromEmail
         self.receiptSettingsData = receiptSettingsData
+    }
+    
+    // Helper to generate PIN from current date (YYMMDD format)
+    func generateDatePIN() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyMMdd"
+        return formatter.string(from: Date()) // Use current date when finalising
     }
 }
 

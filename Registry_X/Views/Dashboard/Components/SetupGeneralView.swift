@@ -6,6 +6,9 @@ struct SetupGeneralView: View {
     var isLocked: Bool
     var onCategoryModeChange: (() -> Void)?
     
+    // Local state for the closing date toggle
+    private var closingDateEnabled: Bool { draft.closingDate != nil }
+    
     var body: some View {
         VStack(spacing: 15) {
             // CARD: GENERAL SETTINGS
@@ -102,6 +105,95 @@ struct SetupGeneralView: View {
                         .scaleEffect(0.8)
                 }
                 .padding(.vertical, 2)
+                
+                // Closing Date Section
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Auto-Finalise")
+                            .font(.body)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { closingDateEnabled },
+                            set: { enabled in
+                                if enabled {
+                                    // Default: today at 23:59
+                                    var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+                                    components.hour = 23
+                                    components.minute = 59
+                                    components.second = 0
+                                    draft.closingDate = Calendar.current.date(from: components) ?? Date()
+                                } else {
+                                    draft.closingDate = nil
+                                }
+                            }
+                        ))
+                        .labelsHidden()
+                        .tint(.green)
+                        .scaleEffect(0.8)
+                    }
+                    .padding(.vertical, 2)
+                    
+                    if let closingDate = draft.closingDate {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Date picker
+                            HStack {
+                                Text("Closing date")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { closingDate },
+                                        set: { newDate in
+                                            // Preserve time, update date part
+                                            let timeComponents = Calendar.current.dateComponents([.hour, .minute], from: closingDate)
+                                            var dateComponents = Calendar.current.dateComponents([.year, .month, .day], from: newDate)
+                                            dateComponents.hour = timeComponents.hour
+                                            dateComponents.minute = timeComponents.minute
+                                            dateComponents.second = 0
+                                            draft.closingDate = Calendar.current.date(from: dateComponents) ?? newDate
+                                        }
+                                    ),
+                                    displayedComponents: .date
+                                )
+                                .labelsHidden()
+                            }
+                            
+                            // Time picker (for testing)
+                            HStack {
+                                Text("Closing time")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Text("(testing)")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                                Spacer()
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { closingDate },
+                                        set: { newTime in
+                                            // Preserve date, update time part
+                                            let dateComponents = Calendar.current.dateComponents([.year, .month, .day], from: closingDate)
+                                            var timeComponents = Calendar.current.dateComponents([.hour, .minute], from: newTime)
+                                            timeComponents.year = dateComponents.year
+                                            timeComponents.month = dateComponents.month
+                                            timeComponents.day = dateComponents.day
+                                            timeComponents.second = 0
+                                            draft.closingDate = Calendar.current.date(from: timeComponents) ?? newTime
+                                        }
+                                    ),
+                                    displayedComponents: .hourAndMinute
+                                )
+                                .labelsHidden()
+                            }
+                        }
+                        .padding(.leading, 4)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.2), value: closingDateEnabled)
             }
             .padding(16)
             .background(Color(UIColor.secondarySystemGroupedBackground))
