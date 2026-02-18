@@ -1025,10 +1025,9 @@ struct SetupView: View {
                         try? modelContext.save()
                         reopenError = false
                         showActionNotification("Event Reopened", color: Color(red: 0.5, green: 0.0, blue: 0.13))
-                        return true
+                        return nil
                     }
-                    UINotificationFeedbackGenerator().notificationOccurred(.error)
-                    return false
+                    return "Incorrect PIN. Try again."
                 },
                 onCancel: {
                     reopenPin = ""

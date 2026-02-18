@@ -349,28 +349,25 @@ struct EventListView: View {
         Text("Enter a name for the new copy.")
     }
     
-    // LOCK ALERT
-    .alert("Lock Event", isPresented: $showingLockAlert) {
-        SecureField("Enter 6-digit PIN", text: $lockPin)
-            .keyboardType(.numberPad)
-        Button("Lock") {
-            if let target = eventToLock {
-                if lockPin.count != 6 {
-                    pinErrorMessage = "PIN must be exactly 6 digits."
-                    showingPinError = true
-                } else if !lockPin.allSatisfy({ $0.isNumber }) {
-                    pinErrorMessage = "PIN must contain only numbers."
-                    showingPinError = true
-                } else {
-                    target.pinCode = lockPin
+    // LOCK SHEET
+    .sheet(isPresented: $showingLockAlert) {
+        PINEntryView(
+            title: "Lock Event",
+            message: "Set a 6-digit PIN code to lock this event.",
+            onSubmit: { enteredPin in
+                if enteredPin.count != 6 { return "PIN must be exactly 6 digits." }
+                if !enteredPin.allSatisfy({ $0.isNumber }) { return "PIN must contain only numbers." }
+                if let target = eventToLock {
+                    target.pinCode = enteredPin
                     target.isLocked = true
-                    lockPin = "" // Clear PIN after successful lock
                 }
-            }
-        }
-        Button("Cancel", role: .cancel) { }
-    } message: {
-        Text("Set a 6-digit PIN code to lock this event.")
+                lockPin = ""
+                return nil
+            },
+            onCancel: { lockPin = "" }
+        )
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
     }
     
     .sheet(isPresented: $showingUnlockAlert) {
@@ -382,14 +379,11 @@ struct EventListView: View {
                     target.isLocked = false
                     target.pinCode = nil
                     unlockPin = ""
-                    return true
+                    return nil
                 }
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                return false
+                return "Incorrect PIN. Try again."
             },
-            onCancel: {
-                unlockPin = ""
-            }
+            onCancel: { unlockPin = "" }
         )
         .presentationDetents([.height(280)])
         .presentationDragIndicator(.visible)

@@ -4,11 +4,12 @@ import SwiftUI
 struct PINEntryView: View {
     let title: String
     let message: String
-    let onSubmit: (String) -> Bool // returns true if PIN correct
+    /// Return nil on success, or an error string to show and stay open
+    let onSubmit: (String) -> String?
     let onCancel: () -> Void
     
     @State private var pin: String = ""
-    @State private var isError: Bool = false
+    @State private var errorMessage: String? = nil
     @FocusState private var isFocused: Bool
     @Environment(\.dismiss) private var dismiss
     
@@ -31,8 +32,8 @@ struct PINEntryView: View {
                 Text("PIN")
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundStyle(isError ? .red : .secondary)
-                    .animation(.easeInOut(duration: 0.2), value: isError)
+                    .foregroundStyle(errorMessage != nil ? .red : .secondary)
+                    .animation(.easeInOut(duration: 0.2), value: errorMessage != nil)
                 
                 SecureField("Enter PIN", text: $pin)
                     .keyboardType(.numberPad)
@@ -45,19 +46,20 @@ struct PINEntryView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(isError ? Color.red : Color(UIColor.systemGray4), lineWidth: isError ? 1.5 : 1)
-                            .animation(.easeInOut(duration: 0.2), value: isError)
+                            .stroke(errorMessage != nil ? Color.red : Color(UIColor.systemGray4),
+                                    lineWidth: errorMessage != nil ? 1.5 : 1)
+                            .animation(.easeInOut(duration: 0.2), value: errorMessage != nil)
                     )
                 
-                if isError {
-                    Text("Incorrect PIN. Try again.")
+                if let msg = errorMessage {
+                    Text(msg)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .transition(.opacity)
                 }
             }
             .padding(.horizontal, 4)
-            .animation(.easeInOut(duration: 0.2), value: isError)
+            .animation(.easeInOut(duration: 0.2), value: errorMessage)
             
             // Buttons
             HStack(spacing: 12) {
@@ -72,21 +74,17 @@ struct PINEntryView: View {
                 .cornerRadius(10)
                 
                 Button("Confirm") {
-                    let correct = onSubmit(pin)
-                    if correct {
-                        dismiss()
-                    } else {
-                        // Stay open — show red error state for 2 seconds
-                        withAnimation {
-                            isError = true
-                        }
+                    if let error = onSubmit(pin) {
+                        // Stay open — show error for 2 seconds
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        withAnimation { errorMessage = error }
                         pin = ""
                         isFocused = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation {
-                                isError = false
-                            }
+                            withAnimation { errorMessage = nil }
                         }
+                    } else {
+                        dismiss()
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -97,7 +95,7 @@ struct PINEntryView: View {
             }
         }
         .padding(24)
-        .interactiveDismissDisabled() // Prevent swipe-to-dismiss while entering PIN
+        .interactiveDismissDisabled()
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
