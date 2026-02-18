@@ -116,8 +116,9 @@ struct SetupGeneralView: View {
                             get: { closingDateEnabled },
                             set: { enabled in
                                 if enabled {
-                                    // Default: today at 23:59
-                                    var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+                                    // Default: 7 days from now at 23:59
+                                    let sevenDaysLater = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+                                    var components = Calendar.current.dateComponents([.year, .month, .day], from: sevenDaysLater)
                                     components.hour = 23
                                     components.minute = 59
                                     components.second = 0

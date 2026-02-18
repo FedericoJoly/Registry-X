@@ -1159,7 +1159,17 @@ struct DraftEventSettings: Equatable {
         self.arePromosEnabled = event.arePromosEnabled
         self.defaultProductBackgroundColor = event.defaultProductBackgroundColor
         self.ratesLastUpdated = event.ratesLastUpdated
-        self.closingDate = event.closingDate
+        // Default closingDate to event.date + 7 days at 23:59 if not already set
+        if let existing = event.closingDate {
+            self.closingDate = existing
+        } else {
+            let sevenDaysLater = Calendar.current.date(byAdding: .day, value: 7, to: event.date) ?? event.date
+            var components = Calendar.current.dateComponents([.year, .month, .day], from: sevenDaysLater)
+            components.hour = 23
+            components.minute = 59
+            components.second = 0
+            self.closingDate = Calendar.current.date(from: components)
+        }
         
         // Migrate to new currencies model if needed
         if !event.currencies.isEmpty {
