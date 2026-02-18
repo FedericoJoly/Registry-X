@@ -1024,7 +1024,6 @@ struct SetupView: View {
                         event.pinCode = nil
                         try? modelContext.save()
                         reopenError = false
-                        showingReopenAlert = false
                         showActionNotification("Event Reopened", color: Color(red: 0.5, green: 0.0, blue: 0.13))
                         return true
                     }
@@ -1034,7 +1033,6 @@ struct SetupView: View {
                 onCancel: {
                     reopenPin = ""
                     reopenError = false
-                    showingReopenAlert = false
                 }
             )
             .presentationDetents([.height(280)])

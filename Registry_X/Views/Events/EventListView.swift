@@ -373,7 +373,6 @@ struct EventListView: View {
         Text("Set a 6-digit PIN code to lock this event.")
     }
     
-    // UNLOCK SHEET (custom - for visual PIN error feedback)
     .sheet(isPresented: $showingUnlockAlert) {
         PINEntryView(
             title: "Unlock Event",
@@ -383,7 +382,6 @@ struct EventListView: View {
                     target.isLocked = false
                     target.pinCode = nil
                     unlockPin = ""
-                    showingUnlockAlert = false
                     return true
                 }
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -391,7 +389,6 @@ struct EventListView: View {
             },
             onCancel: {
                 unlockPin = ""
-                showingUnlockAlert = false
             }
         )
         .presentationDetents([.height(280)])

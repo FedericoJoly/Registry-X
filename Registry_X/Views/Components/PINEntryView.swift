@@ -10,6 +10,7 @@ struct PINEntryView: View {
     @State private var pin: String = ""
     @State private var isError: Bool = false
     @FocusState private var isFocused: Bool
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         VStack(spacing: 24) {
@@ -62,6 +63,7 @@ struct PINEntryView: View {
             HStack(spacing: 12) {
                 Button("Cancel") {
                     onCancel()
+                    dismiss()
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -71,8 +73,10 @@ struct PINEntryView: View {
                 
                 Button("Confirm") {
                     let correct = onSubmit(pin)
-                    if !correct {
-                        // Show red error state for 2 seconds
+                    if correct {
+                        dismiss()
+                    } else {
+                        // Stay open — show red error state for 2 seconds
                         withAnimation {
                             isError = true
                         }
@@ -93,6 +97,7 @@ struct PINEntryView: View {
             }
         }
         .padding(24)
+        .interactiveDismissDisabled() // Prevent swipe-to-dismiss while entering PIN
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
