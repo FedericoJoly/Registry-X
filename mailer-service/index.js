@@ -7,10 +7,10 @@ const port = process.env.PORT || 8080;
 
 // Configure CORS
 app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS']
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS']
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Configure Resend (only if API key is provided)
 const { Resend } = require('resend');
@@ -18,34 +18,34 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'healthy', service: 'mailer-service' });
+  res.json({ status: 'healthy', service: 'mailer-service' });
 });
 
 // Password recovery email endpoint
 app.post('/send-password-reset', async (req, res) => {
-    try {
-        const { email, resetLink } = req.body;
+  try {
+    const { email, resetLink } = req.body;
 
-        // Validate Resend is configured
-        if (!resend) {
-            return res.status(500).json({
-                error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
-            });
-        }
+    // Validate Resend is configured
+    if (!resend) {
+      return res.status(500).json({
+        error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
+      });
+    }
 
-        // Validate required fields
-        if (!email || !resetLink) {
-            return res.status(400).json({ error: 'email and resetLink are required' });
-        }
+    // Validate required fields
+    if (!email || !resetLink) {
+      return res.status(400).json({ error: 'email and resetLink are required' });
+    }
 
-        // Basic email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({ error: 'Invalid email format' });
-        }
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
 
-        // Generate HTML email
-        const html = `
+    // Generate HTML email
+    const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -74,51 +74,51 @@ app.post('/send-password-reset', async (req, res) => {
 </html>
     `;
 
-        // Send email via Resend
-        const data = await resend.emails.send({
-            from: process.env.PASSREC_MAIL_FROM || 'Registry X <noreply@resend.dev>',
-            to: email,
-            subject: 'Reset Your Password',
-            html: html
-        });
+    // Send email via Resend
+    const data = await resend.emails.send({
+      from: process.env.PASSREC_MAIL_FROM || 'Registry X <noreply@resend.dev>',
+      to: email,
+      subject: 'Reset Your Password',
+      html: html
+    });
 
-        res.json({
-            success: true,
-            message: 'Password reset email sent successfully',
-            recipient: email,
-            emailId: data.id
-        });
-    } catch (error) {
-        console.error('Error sending password reset email:', error);
-        res.status(500).json({ error: error.message });
-    }
+    res.json({
+      success: true,
+      message: 'Password reset email sent successfully',
+      recipient: email,
+      emailId: data.id
+    });
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Password recovery endpoint (legacy - matches existing iOS app)
 app.post('/password-recovery', async (req, res) => {
-    try {
-        const { email, fullName, temporaryPassword, fromName, fromEmail } = req.body;
+  try {
+    const { email, fullName, temporaryPassword, fromName, fromEmail } = req.body;
 
-        // Validate Resend is configured
-        if (!resend) {
-            return res.status(500).json({
-                error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
-            });
-        }
+    // Validate Resend is configured
+    if (!resend) {
+      return res.status(500).json({
+        error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
+      });
+    }
 
-        // Validate required fields
-        if (!email || !fullName || !temporaryPassword || !fromName || !fromEmail) {
-            return res.status(400).json({ error: 'email, fullName, temporaryPassword, fromName, and fromEmail are required' });
-        }
+    // Validate required fields
+    if (!email || !fullName || !temporaryPassword || !fromName || !fromEmail) {
+      return res.status(400).json({ error: 'email, fullName, temporaryPassword, fromName, and fromEmail are required' });
+    }
 
-        // Basic email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({ error: 'Invalid email format' });
-        }
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
 
-        // Generate HTML email
-        const html = `
+    // Generate HTML email
+    const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -150,70 +150,162 @@ app.post('/password-recovery', async (req, res) => {
 </html>
     `;
 
-        // Send email via Resend
-        const data = await resend.emails.send({
-            from: `${fromName} <${fromEmail}>`,
-            to: email,
-            subject: 'Your Password Has Been Reset',
-            html: html
-        });
+    // Send email via Resend
+    const data = await resend.emails.send({
+      from: `${fromName} <${fromEmail}>`,
+      to: email,
+      subject: 'Your Password Has Been Reset',
+      html: html
+    });
 
-        res.json({
-            success: true,
-            message: 'Password recovery email sent successfully',
-            recipient: email,
-            emailId: data.id
-        });
-    } catch (error) {
-        console.error('Error sending password recovery email:', error);
-        res.status(500).json({ error: error.message });
-    }
+    res.json({
+      success: true,
+      message: 'Password recovery email sent successfully',
+      recipient: email,
+      emailId: data.id
+    });
+  } catch (error) {
+    console.error('Error sending password recovery email:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Receipt email endpoint
 app.post('/send-receipt', async (req, res) => {
-    try {
-        const { email, subject, html, fromName, fromEmail } = req.body;
+  try {
+    const { email, subject, html, fromName, fromEmail } = req.body;
 
-        // Validate Resend is configured
-        if (!resend) {
-            return res.status(500).json({
-                error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
-            });
-        }
-
-        // Validate required fields
-        if (!email || !subject || !html || !fromName || !fromEmail) {
-            return res.status(400).json({ error: 'email, subject, html, fromName, and fromEmail are required' });
-        }
-
-        // Basic email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({ error: 'Invalid email format' });
-        }
-
-        // Send email via Resend
-        const data = await resend.emails.send({
-            from: `${fromName} <${fromEmail}>`,
-            to: email,
-            subject: subject,
-            html: html
-        });
-
-        res.json({
-            success: true,
-            message: 'Receipt email sent successfully',
-            recipient: email,
-            emailId: data.id
-        });
-    } catch (error) {
-        console.error('Error sending custom receipt email:', error);
-        res.status(500).json({ error: error.message });
+    // Validate Resend is configured
+    if (!resend) {
+      return res.status(500).json({
+        error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
+      });
     }
+
+    // Validate required fields
+    if (!email || !subject || !html || !fromName || !fromEmail) {
+      return res.status(400).json({ error: 'email, subject, html, fromName, and fromEmail are required' });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Send email via Resend
+    const data = await resend.emails.send({
+      from: `${fromName} <${fromEmail}>`,
+      to: email,
+      subject: subject,
+      html: html
+    });
+
+    res.json({
+      success: true,
+      message: 'Receipt email sent successfully',
+      recipient: email,
+      emailId: data.id
+    });
+  } catch (error) {
+    console.error('Error sending custom receipt email:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Event finalised email endpoint
+app.post('/event-finalised', async (req, res) => {
+  try {
+    const { eventName, username, totalAmount, recipients, fromName, fromEmail, xlsBase64, xlsFilename } = req.body;
+
+    // Validate Resend is configured
+    if (!resend) {
+      return res.status(500).json({
+        error: 'Email service not configured. Please set RESEND_API_KEY environment variable.'
+      });
+    }
+
+    // Validate required fields
+    if (!eventName || !username || !totalAmount || !recipients || !fromName || !fromEmail) {
+      return res.status(400).json({ error: 'eventName, username, totalAmount, recipients, fromName, and fromEmail are required' });
+    }
+
+    // Validate recipients is an array
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'recipients must be a non-empty array' });
+    }
+
+    // Validate all recipient emails
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const email of recipients) {
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: `Invalid email format: ${email}` });
+      }
+    }
+
+    // Generate HTML email with burgundy theme
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+    <div style="background: linear-gradient(135deg, #800021 0%, #500013 100%); padding: 30px; text-align: center; color: white;">
+      <h1 style="margin: 0; font-size: 28px; font-weight: 600;">Event Finalised</h1>
+      <p style="margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;">Registry X</p>
+    </div>
+    <div style="padding: 30px;">
+      <p style="font-size: 16px; color: #333; line-height: 1.6;">The user <strong>${username}</strong> has just finalised the event <strong>${eventName}</strong>.</p>
+      <p style="font-size: 16px; color: #333; line-height: 1.6;">The total gross sales is <strong style="color: #800021;">${totalAmount}</strong>.</p>
+      <div style="margin: 30px 0; padding: 20px; background-color: #f8f9fa; border-left: 4px solid #800021; border-radius: 4px;">
+        <p style="margin: 0; font-size: 14px; color: #666; line-height: 1.6;">This event has been locked and can only be reopened using the correct PIN code.</p>
+      </div>
+      <p style="font-size: 14px; color: #666; line-height: 1.6; margin-top: 30px;">The Registry-X Team</p>
+    </div>
+    <div style="padding: 20px; background-color: #f8f9fa; text-align: center; border-top: 1px solid #eee;">
+      <p style="margin: 0; font-size: 12px; color: #999;">This email was sent to ${recipients.join(', ')}</p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    // Prepare email payload
+    const emailPayload = {
+      from: `${fromName} <${fromEmail}>`,
+      to: recipients,
+      subject: `Event ${eventName} finalised by ${username}`,
+      html: html
+    };
+
+    // Add XLS attachment if provided
+    if (xlsBase64 && xlsFilename) {
+      const xlsBuffer = Buffer.from(xlsBase64, 'base64');
+      emailPayload.attachments = [{
+        filename: xlsFilename,
+        content: xlsBuffer
+      }];
+    }
+
+    // Send email via Resend
+    const data = await resend.emails.send(emailPayload);
+
+    res.json({
+      success: true,
+      message: 'Event finalisation email sent successfully',
+      recipients: recipients,
+      emailId: data.id
+    });
+  } catch (error) {
+    console.error('Error sending event finalisation email:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.listen(port, () => {
-    console.log(`Mailer service listening on port ${port}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Mailer service listening on port ${port}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
