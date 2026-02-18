@@ -386,6 +386,7 @@ struct EventListView: View {
                         target.isLocked = false
                         target.pinCode = nil
                     } else {
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
                         unlockError = true
                     }
                 }
@@ -413,8 +414,8 @@ struct EventListView: View {
                         modelContext.delete(target)
                     } else {
                         // WRONG PIN
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
                         deleteError = true
-                        // Trigger error alert
                     }
                 } else {
                     modelContext.delete(target)

@@ -1025,6 +1025,7 @@ struct SetupView: View {
                     reopenError = false
                     showActionNotification("Event Reopened", color: Color(red: 0.5, green: 0.0, blue: 0.13))
                 } else {
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
                     reopenError = true
                     showingReopenAlert = true
                 }
