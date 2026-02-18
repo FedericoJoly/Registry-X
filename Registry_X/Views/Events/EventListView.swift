@@ -79,7 +79,7 @@ struct EventListView: View {
                                                 }
                                         }
                                     
-                                    Text("Version 2026.2")
+                                    Text("Version 2.0 (2026.2)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .padding(.bottom, 5)
