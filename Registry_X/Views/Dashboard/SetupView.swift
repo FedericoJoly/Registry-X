@@ -435,57 +435,20 @@ struct SetupView: View {
     }
     
     private func finaliseEvent() {
-        // Generate PIN from current date (YYMMDD format)
-        let generatedPIN = event.generateDatePIN()
-        
-        // Lock event with generated PIN
-        event.pinCode = generatedPIN
-        event.isLocked = true
-        event.isFinalised = true
-        event.closingDate = nil
-        
-        // Cancel any pending auto-finalise notification
-        AutoFinaliseService.shared.cancelNotification(for: event)
-        
-        // Save to database
-        try? modelContext.save()
-        
-        // Calculate total gross sales
-        let totalAmount = calculateTotalGrossSales()
-        let mainCurrency = event.currencies.first(where: { $0.isMain })
-        let currencySymbol = mainCurrency?.symbol ?? "$"
-        let formattedTotal = "\(currencySymbol)\(totalAmount.formatted(.number.precision(.fractionLength(2))))"
-        
-        // Generate XLS file in background (no UI)
-        let xlsData = ExcelExportService.generateExcelData(
-            event: event,
-            username: authService.currentUser?.username ?? "Unknown"
-        )
-        
-        // Create filename with event name and timestamp
-        let timestamp = formatTimestamp(Date())
-        let xlsFilename = "\(event.name)_\(timestamp).xlsx"
-        
-        // Get recipient emails: event owner + federico
-        var recipients: [String] = ["federico.joly@gmail.com"]
+        // Look up creator email
+        var creatorEmail: String? = nil
         if let creatorId = event.creatorId {
             let descriptor = FetchDescriptor<User>(predicate: #Predicate { $0.id == creatorId })
-            if let creator = try? modelContext.fetch(descriptor).first {
-                recipients.insert(creator.email, at: 0) // Owner first
-            }
+            creatorEmail = (try? modelContext.fetch(descriptor).first)?.email
         }
         
-        // Send email notification with XLS attachment
-        if let currentUser = authService.currentUser {
-            EventNotificationService.sendFinalisationEmail(
-                eventName: event.name,
-                username: currentUser.fullName,
-                totalAmount: formattedTotal,
-                recipientEmails: recipients,
-                xlsData: xlsData,
-                xlsFilename: xlsFilename
-            )
-        }
+        // Delegate to shared service (single source of truth)
+        AutoFinaliseService.shared.finaliseEvent(
+            event,
+            modelContext: modelContext,
+            username: authService.currentUser?.fullName ?? event.creatorName,
+            creatorEmail: creatorEmail
+        )
         
         // Show confirmation
         showActionNotification("Event Finalised", color: Color(red: 0.5, green: 0.0, blue: 0.13))
