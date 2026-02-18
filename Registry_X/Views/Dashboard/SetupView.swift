@@ -57,6 +57,10 @@ struct SetupView: View {
     @State private var pendingMergeExport: EventExport?
     @State private var xlsExportData: Data?
     @State private var showingXLSShare = false
+    @State private var showingReopenAlert = false
+    @State private var reopenPin = ""
+    @State private var reopenError = false
+    @State private var showingFinaliseConfirmation = false
     
     // Derived Binding (Safe Unwrapping)
     private var draftBinding: Binding<DraftEventSettings> {
@@ -412,6 +416,86 @@ struct SetupView: View {
         showActionNotification("Reset Complete", color: .orange)
     }
     
+    private func finaliseEvent() {
+        // Generate PIN from current date (YYMMDD format)
+        let generatedPIN = event.generateDatePIN()
+        
+        // Lock event with generated PIN
+        event.pinCode = generatedPIN
+        event.isLocked = true
+        event.isFinalised = true
+        
+        // Save to database
+        try? modelContext.save()
+        
+        // Calculate total gross sales
+        let totalAmount = calculateTotalGrossSales()
+        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        let currencySymbol = mainCurrency?.symbol ?? "$"
+        let formattedTotal = "\(currencySymbol)\(totalAmount.formatted(.number.precision(.fractionLength(2))))"
+        
+        // Generate XLS file in background (no UI)
+        let xlsData = ExcelExportService.generateExcelData(
+            event: event,
+            username: authService.currentUser?.username ?? "Unknown"
+        )
+        
+        // Create filename with event name and timestamp
+        let timestamp = formatTimestamp(Date())
+        let xlsFilename = "\(event.name)_\(timestamp).xlsx"
+        
+        // Get recipient emails: event owner + federico
+        var recipients: [String] = ["federico.joly@gmail.com"]
+        if let creatorId = event.creatorId {
+            let descriptor = FetchDescriptor<User>(predicate: #Predicate { $0.id == creatorId })
+            if let creator = try? modelContext.fetch(descriptor).first {
+                recipients.insert(creator.email, at: 0) // Owner first
+            }
+        }
+        
+        // Send email notification with XLS attachment
+        if let currentUser = authService.currentUser {
+            EventNotificationService.sendFinalisationEmail(
+                eventName: event.name,
+                username: currentUser.fullName,
+                totalAmount: formattedTotal,
+                recipientEmails: recipients,
+                xlsData: xlsData,
+                xlsFilename: xlsFilename
+            )
+        }
+        
+        // Show confirmation
+        showActionNotification("Event Finalised", color: Color(red: 0.5, green: 0.0, blue: 0.13))
+    }
+    
+    private func calculateTotalGrossSales() -> Decimal {
+        var total = Decimal(0)
+        let mainCurrency = event.currencies.first(where: { $0.isMain })
+        let mainCode = mainCurrency?.code ?? event.currencyCode
+        
+        for transaction in event.transactions {
+            let amount = transaction.totalAmount
+            
+            // Convert to main currency if needed
+            if transaction.currencyCode == mainCode {
+                total += amount
+            } else {
+                let rate = event.currencies.first(where: { $0.code == transaction.currencyCode })?.rate ?? 1.0
+                let converted = amount / rate
+                
+                // Apply round-up if enabled
+                if event.isTotalRoundUp {
+                    total += Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
+                } else {
+                    total += converted
+                }
+            }
+        }
+        
+        return total
+    }
+    
     private func handleMergeFromJSON(fileURL: URL) {
         // Dismiss the file picker
         showingMergeFilePicker = false
@@ -669,13 +753,30 @@ struct SetupView: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 16)
             
-            // Row 1: GSheet | Reset | Save
+            // Row 1: Finalise/Reopen | Reset | Save
             HStack(spacing: 12) {
-                SettingsActionButton(title: "GSheet", icon: "doc.text.fill", color: Color(UIColor.systemGray5), foreground: .secondary) { showingExportPlaceholder = true }
+                SettingsActionButton(
+                    title: event.isFinalised ? "Reopen" : "Finalise", 
+                    icon: event.isFinalised ? "arrow.uturn.backward" : "seal.fill", 
+                    color: Color(red: 0.5, green: 0.0, blue: 0.13), 
+                    foreground: .white
+                ) { 
+                    if event.isFinalised {
+                        showingReopenAlert = true
+                    } else {
+                        showingFinaliseConfirmation = true
+                    }
+                }
+                
                 SettingsActionButton(title: "Reset", icon: "arrow.counterclockwise", color: .orange) { 
                     showingResetEventConfirmation = true
                 }
+                .disabled(event.isLocked)
+                .opacity(event.isLocked ? 0.6 : 1.0)
+                
                 SettingsActionButton(title: "Save", icon: "internaldrive", color: .blue) { saveSettings() }
+                .disabled(event.isLocked)
+                .opacity(event.isLocked ? 0.6 : 1.0)
             }
             
             // Row 2: XLS | Merge | Export
@@ -686,9 +787,9 @@ struct SetupView: View {
                 }
                 SettingsActionButton(title: "Export", icon: "square.and.arrow.up", color: .purple) { exportJSON() }
             }
+            .disabled(event.isLocked)
+            .opacity(event.isLocked ? 0.6 : 1.0)
         }
-        .disabled(event.isLocked)
-        .opacity(event.isLocked ? 0.6 : 1.0)
         .padding(.bottom, 12)
     }
     
@@ -887,6 +988,38 @@ struct SetupView: View {
         } message: {
             let count = event.transactions.count
             return Text("This will delete all \(count) transaction\(count == 1 ? "" : "s"). This action cannot be undone.")
+        }
+        .alert("Reopen Event", isPresented: $showingReopenAlert) {
+            SecureField("Enter PIN", text: $reopenPin)
+                .keyboardType(.numberPad)
+            Button("Reopen") {
+                if event.pinCode == reopenPin {
+                    event.isFinalised = false
+                    event.isLocked = false
+                    event.pinCode = nil
+                    try? modelContext.save()
+                    reopenError = false
+                    showActionNotification("Event Reopened", color: Color(red: 0.5, green: 0.0, blue: 0.13))
+                } else {
+                    reopenError = true
+                    showingReopenAlert = true
+                }
+                reopenPin = ""
+            }
+            Button("Cancel", role: .cancel) {
+                reopenPin = ""
+                reopenError = false
+            }
+        } message: {
+            Text(reopenError ? "Incorrect PIN. Try again." : "Enter the PIN to reopen this event.")
+        }
+        .alert("Finalise Event?", isPresented: $showingFinaliseConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Finalise") {
+                finaliseEvent()
+            }
+        } message: {
+            Text("Confirm to finalise this event now?")
         }
     }
     

@@ -29,6 +29,8 @@ struct EventListView: View {
     @State private var eventToLock: Event?
     @State private var showingLockAlert = false
     @State private var lockPin = ""
+    @State private var showingPinError = false
+    @State private var pinErrorMessage = ""
     
     @State private var eventToUnlock: Event?
     @State private var showingUnlockAlert = false
@@ -352,9 +354,18 @@ struct EventListView: View {
         SecureField("Enter 6-digit PIN", text: $lockPin)
             .keyboardType(.numberPad)
         Button("Lock") {
-            if let target = eventToLock, lockPin.count == 6, lockPin.allSatisfy({ $0.isNumber }) {
-                target.pinCode = lockPin
-                target.isLocked = true
+            if let target = eventToLock {
+                if lockPin.count != 6 {
+                    pinErrorMessage = "PIN must be exactly 6 digits."
+                    showingPinError = true
+                } else if !lockPin.allSatisfy({ $0.isNumber }) {
+                    pinErrorMessage = "PIN must contain only numbers."
+                    showingPinError = true
+                } else {
+                    target.pinCode = lockPin
+                    target.isLocked = true
+                    lockPin = "" // Clear PIN after successful lock
+                }
             }
         }
         Button("Cancel", role: .cancel) { }
@@ -364,21 +375,29 @@ struct EventListView: View {
     
     // UNLOCK ALERT
     .alert("Unlock Event", isPresented: $showingUnlockAlert) {
-        SecureField("Enter PIN", text: $unlockPin)
-            .keyboardType(.numberPad)
-        Button("Unlock") {
-            if let target = eventToUnlock {
-                if target.pinCode == unlockPin {
-                    target.isLocked = false
-                    target.pinCode = nil
-                } else {
-                    unlockError = true
+        if let target = eventToUnlock, target.isFinalised {
+            Button("OK", role: .cancel) { }
+        } else {
+            SecureField("Enter PIN", text: $unlockPin)
+                .keyboardType(.numberPad)
+            Button("Unlock") {
+                if let target = eventToUnlock {
+                    if target.pinCode == unlockPin {
+                        target.isLocked = false
+                        target.pinCode = nil
+                    } else {
+                        unlockError = true
+                    }
                 }
             }
+            Button("Cancel", role: .cancel) { }
         }
-        Button("Cancel", role: .cancel) { }
     } message: {
-        Text(unlockError ? "Incorrect PIN. Try again." : "Enter the PIN to unlock.")
+        if let target = eventToUnlock, target.isFinalised {
+            Text("This event is finalised. Reopen it from inside the event.")
+        } else {
+            Text(unlockError ? "Incorrect PIN. Try again." : "Enter the PIN to unlock.")
+        }
     }
     
     // DELETE ALERT (Protected)
@@ -410,11 +429,18 @@ struct EventListView: View {
             Text("Are you sure you want to delete '\(eventToDelete?.name ?? "")'? This cannot be undone.")
         }
     }
-    // Delete Error Alert
-    .alert("Wrong PIN", isPresented: $deleteError) {
-        Button("OK", role: .cancel) { }
+    // DELETE ERROR
+    .alert("Incorrect PIN", isPresented: $deleteError) {
+        Button("OK", role: .cancel) {}
     } message: {
-         Text("The PIN number is incorrect. Event was not deleted.")
+        Text("The PIN you entered is incorrect. Deletion cancelled.")
+    }
+    
+    // PIN VALIDATION ERROR
+    .alert("Invalid PIN", isPresented: $showingPinError) {
+        Button("OK", role: .cancel) {}
+    } message: {
+        Text(pinErrorMessage)
     }
     // Secondary Duplicate Error Alert
      .alert("Name Taken", isPresented: $showingDuplicateError) {
@@ -865,10 +891,11 @@ struct EventCard: View {
                                     Text("PIN: \(pin)")
                                         .font(.caption)
                                         .foregroundStyle(.white)
-                                        .background(Color.indigo)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(event.isFinalised ? Color(red: 0.5, green: 0.0, blue: 0.13) : Color.indigo)
+                                        .cornerRadius(6)
                                         .padding(.top, 2)
-                                        .frame(height: 40)
-                                        .cornerRadius(10)
                                 }
                             }
                             
