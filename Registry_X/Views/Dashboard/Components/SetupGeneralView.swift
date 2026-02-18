@@ -160,14 +160,11 @@ struct SetupGeneralView: View {
                                 .labelsHidden()
                             }
                             
-                            // Time picker (for testing)
+                            // Time picker
                             HStack {
                                 Text("Closing time")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
-                                Text("(testing)")
-                                    .font(.caption)
-                                    .foregroundColor(.orange)
                                 Spacer()
                                 DatePicker(
                                     "",
