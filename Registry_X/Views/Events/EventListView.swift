@@ -940,6 +940,8 @@ struct EventCard: View {
                 ActionButton(icon: event.isLocked ? "lock.fill" : "lock.open", color: .orange) {
                     onLockStateChange()
                 }
+                .disabled(event.isFinalised)
+                .opacity(event.isFinalised ? 0.4 : 1.0)
                 
                 // DELETE
                 ActionButton(icon: "trash", color: .red) {

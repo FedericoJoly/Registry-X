@@ -782,6 +782,8 @@ struct SetupView: View {
                         showingFinaliseConfirmation = true
                     }
                 }
+                .disabled(!event.isFinalised && event.isLocked)
+                .opacity(!event.isFinalised && event.isLocked ? 0.4 : 1.0)
                 
                 SettingsActionButton(title: "Reset", icon: "arrow.counterclockwise", color: .orange) { 
                     showingResetEventConfirmation = true
