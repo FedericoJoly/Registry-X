@@ -10,6 +10,9 @@ struct FilteredEventList: View {
     let onLockStateChange: (Event) -> Void
     let onDelete: (Event) -> Void
     
+    // Incremented when auto-finalise fires to force a re-render
+    @State private var refreshID = UUID()
+    
     init(userId: UUID?, onDuplicate: @escaping (Event) -> Void, onLockStateChange: @escaping (Event) -> Void, onDelete: @escaping (Event) -> Void) {
         self.onDuplicate = onDuplicate
         self.onLockStateChange = onLockStateChange
@@ -58,6 +61,10 @@ struct FilteredEventList: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 10)
             .padding(.bottom, 80)
+        }
+        .id(refreshID) // Force re-render when auto-finalise fires
+        .onReceive(NotificationCenter.default.publisher(for: .eventDidAutoFinalise)) { _ in
+            refreshID = UUID()
         }
     }
 }

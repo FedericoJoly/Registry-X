@@ -2,6 +2,10 @@ import Foundation
 import UserNotifications
 import SwiftData
 
+extension Notification.Name {
+    static let eventDidAutoFinalise = Notification.Name("eventDidAutoFinalise")
+}
+
 /// Handles scheduling and checking auto-finalise for all events.
 /// - Schedules a local notification at each event's closing date
 /// - On app foreground, checks all events and finalises any that are overdue
@@ -79,6 +83,9 @@ class AutoFinaliseService {
         
         cancelNotification(for: event)
         try? modelContext.save()
+        
+        // Notify UI to refresh
+        NotificationCenter.default.post(name: .eventDidAutoFinalise, object: nil)
         
         // Calculate total gross sales in main currency
         let mainCurrency = event.currencies.first(where: { $0.isMain })
