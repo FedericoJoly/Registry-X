@@ -387,6 +387,9 @@ struct SetupView: View {
         // Save to database FIRST
         try? modelContext.save()
         
+        // (Re)schedule auto-finalise notification for the new closing date
+        AutoFinaliseService.shared.scheduleNotification(for: event)
+        
         // THEN reset draft to match the saved state
         // BUT preserve payment methods (since Event doesn't store them)
         let currentPaymentMethods = draftSettings?.paymentMethods ?? []
@@ -439,6 +442,10 @@ struct SetupView: View {
         event.pinCode = generatedPIN
         event.isLocked = true
         event.isFinalised = true
+        event.closingDate = nil
+        
+        // Cancel any pending auto-finalise notification
+        AutoFinaliseService.shared.cancelNotification(for: event)
         
         // Save to database
         try? modelContext.save()

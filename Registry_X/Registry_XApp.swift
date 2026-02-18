@@ -6,6 +6,7 @@ import StripeTerminal
 struct Registry_XApp: App {
     @State private var isSplashScreenActive = true
     @State private var modelContainer: ModelContainer?
+    @Environment(\.scenePhase) private var scenePhase
     
     var body: some Scene {
         WindowGroup {
@@ -21,14 +22,24 @@ struct Registry_XApp: App {
             }
             .animation(.easeInOut(duration: 0.5), value: isSplashScreenActive)
             .task {
+                // Request notification permission for auto-finalise
+                AutoFinaliseService.shared.requestPermissionIfNeeded()
+                
                 // Initialize ModelContainer in background during splash
                 let container = await createModelContainer()
-                
                 modelContainer = container
                 
                 // Wait minimum 2 seconds for splash
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 isSplashScreenActive = false
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                // Check for overdue events every time app comes to foreground
+                if newPhase == .active, let container = modelContainer {
+                    AutoFinaliseService.shared.checkAndFinaliseOverdueEvents(
+                        modelContext: container.mainContext
+                    )
+                }
             }
         }
     }
