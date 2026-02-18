@@ -937,7 +937,7 @@ struct EventCard: View {
                 }
                 
                 // LOCK/UNLOCK
-                ActionButton(icon: event.isLocked ? "lock.fill" : "lock.open", color: .orange) {
+                ActionButton(icon: event.isLocked ? "lock.open" : "lock.fill", color: .orange) {
                     onLockStateChange()
                 }
                 .disabled(event.isFinalised)
