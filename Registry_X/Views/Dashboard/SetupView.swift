@@ -1013,30 +1013,32 @@ struct SetupView: View {
             let count = event.transactions.count
             return Text("This will delete all \(count) transaction\(count == 1 ? "" : "s"). This action cannot be undone.")
         }
-        .alert("Reopen Event", isPresented: $showingReopenAlert) {
-            SecureField("Enter PIN", text: $reopenPin)
-                .keyboardType(.numberPad)
-            Button("Reopen") {
-                if event.pinCode == reopenPin {
-                    event.isFinalised = false
-                    event.isLocked = false
-                    event.pinCode = nil
-                    try? modelContext.save()
-                    reopenError = false
-                    showActionNotification("Event Reopened", color: Color(red: 0.5, green: 0.0, blue: 0.13))
-                } else {
+        .sheet(isPresented: $showingReopenAlert) {
+            PINEntryView(
+                title: "Reopen Event",
+                message: "Enter the PIN to reopen this event.",
+                onSubmit: { enteredPin in
+                    if event.pinCode == enteredPin {
+                        event.isFinalised = false
+                        event.isLocked = false
+                        event.pinCode = nil
+                        try? modelContext.save()
+                        reopenError = false
+                        showingReopenAlert = false
+                        showActionNotification("Event Reopened", color: Color(red: 0.5, green: 0.0, blue: 0.13))
+                        return true
+                    }
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
-                    reopenError = true
-                    showingReopenAlert = true
+                    return false
+                },
+                onCancel: {
+                    reopenPin = ""
+                    reopenError = false
+                    showingReopenAlert = false
                 }
-                reopenPin = ""
-            }
-            Button("Cancel", role: .cancel) {
-                reopenPin = ""
-                reopenError = false
-            }
-        } message: {
-            Text(reopenError ? "Incorrect PIN. Try again." : "Enter the PIN to reopen this event.")
+            )
+            .presentationDetents([.height(280)])
+            .presentationDragIndicator(.visible)
         }
         .alert("Finalise Event?", isPresented: $showingFinaliseConfirmation) {
             Button("Cancel", role: .cancel) { }

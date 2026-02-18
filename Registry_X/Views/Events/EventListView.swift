@@ -373,32 +373,29 @@ struct EventListView: View {
         Text("Set a 6-digit PIN code to lock this event.")
     }
     
-    // UNLOCK ALERT
-    .alert("Unlock Event", isPresented: $showingUnlockAlert) {
-        if let target = eventToUnlock, target.isFinalised {
-            Button("OK", role: .cancel) { }
-        } else {
-            SecureField("Enter PIN", text: $unlockPin)
-                .keyboardType(.numberPad)
-            Button("Unlock") {
-                if let target = eventToUnlock {
-                    if target.pinCode == unlockPin {
-                        target.isLocked = false
-                        target.pinCode = nil
-                    } else {
-                        UINotificationFeedbackGenerator().notificationOccurred(.error)
-                        unlockError = true
-                    }
+    // UNLOCK SHEET (custom - for visual PIN error feedback)
+    .sheet(isPresented: $showingUnlockAlert) {
+        PINEntryView(
+            title: "Unlock Event",
+            message: "Enter the PIN to unlock.",
+            onSubmit: { enteredPin in
+                if let target = eventToUnlock, target.pinCode == enteredPin {
+                    target.isLocked = false
+                    target.pinCode = nil
+                    unlockPin = ""
+                    showingUnlockAlert = false
+                    return true
                 }
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                return false
+            },
+            onCancel: {
+                unlockPin = ""
+                showingUnlockAlert = false
             }
-            Button("Cancel", role: .cancel) { }
-        }
-    } message: {
-        if let target = eventToUnlock, target.isFinalised {
-            Text("This event is finalised. Reopen it from inside the event.")
-        } else {
-            Text(unlockError ? "Incorrect PIN. Try again." : "Enter the PIN to unlock.")
-        }
+        )
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
     }
     
     // DELETE ALERT (Protected)
