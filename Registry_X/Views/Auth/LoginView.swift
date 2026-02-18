@@ -94,7 +94,7 @@ struct LoginView: View {
                                     }
                             }
                         
-                        Text("Version 2.0 (26.01)")
+                        Text("Version 2026.2")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
