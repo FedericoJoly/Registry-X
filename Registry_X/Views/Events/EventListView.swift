@@ -541,6 +541,9 @@ struct EventListView: View {
         newEvent.fromName = original.fromName
         newEvent.fromEmail = original.fromEmail
         
+        // NOTE: closingDate is intentionally NOT copied — a duplicate should not
+        // inherit the auto-finalise schedule of the original event.
+        
         // Copy Stripe integration enabled flag
         newEvent.stripeIntegrationEnabled = original.stripeIntegrationEnabled
         

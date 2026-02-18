@@ -36,6 +36,9 @@ struct EventExport: Codable, Sendable {
     // Receipt Configuration
     let receiptSettingsData: Data?
     
+    // Closing Date
+    let closingDate: Date?
+    
     // Data
     let currencies: [CurrencyExport]
     let categories: [CategoryExport]
@@ -271,6 +274,7 @@ extension Event {
             fromName: fromName,
             fromEmail: fromEmail,
             receiptSettingsData: receiptSettingsData,
+            closingDate: closingDate,
             currencies: currencyExports,
             categories: categoryExports,
             products: productExports,

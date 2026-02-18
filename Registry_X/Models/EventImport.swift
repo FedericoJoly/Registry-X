@@ -49,6 +49,9 @@ extension EventExport {
         event.fromName = fromName
         event.fromEmail = fromEmail
         
+        // Restore closing date from export
+        event.closingDate = closingDate
+        
         // Set Stripe integration enabled flag (not in init)
 
         event.stripeIntegrationEnabled = stripeIntegrationEnabled ?? false
@@ -405,6 +408,11 @@ extension EventExport {
         // Merge receipt settings (keep existing if present, otherwise use imported)
         if event.receiptSettingsData == nil && receiptSettingsData != nil {
             event.receiptSettingsData = receiptSettingsData
+        }
+        
+        // Merge closing date (keep existing if set, otherwise use imported)
+        if event.closingDate == nil, let importedClosingDate = closingDate {
+            event.closingDate = importedClosingDate
         }
         
         // Append all transactions (no deduplication)

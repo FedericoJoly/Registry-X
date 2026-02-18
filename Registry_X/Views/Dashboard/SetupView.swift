@@ -1370,7 +1370,8 @@ struct DraftEventSettings: Equatable {
                lhs.companyName == rhs.companyName &&
                lhs.fromName == rhs.fromName &&
                lhs.fromEmail == rhs.fromEmail &&
-               lhs.receiptSettings == rhs.receiptSettings
+               lhs.receiptSettings == rhs.receiptSettings &&
+               lhs.closingDate == rhs.closingDate
                // Ignore ratesLastUpdated and changeId in dirty check
                // changeId is only used to trigger onChange, not for equality
     }
