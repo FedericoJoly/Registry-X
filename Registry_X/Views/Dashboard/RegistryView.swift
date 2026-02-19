@@ -73,7 +73,7 @@ struct RegistryView: View {
     struct PaymentMethodRow: Identifiable {
         let id = UUID()
         let methodName: String
-        let units: Int
+        let units: Decimal   // may be fractional for split transactions
         let subtotal: Decimal
     }
     
@@ -131,7 +131,7 @@ struct RegistryView: View {
             let (category, items) = value
             
             // Group by currency and payment method using tuples
-            var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
+            var currencyDict: [String: [(method: String, quantity: Decimal, subtotal: Decimal)]] = [:]
             var totalInMainCurrency = Decimal(0)
             var totalUnits = 0
             
@@ -154,14 +154,17 @@ struct RegistryView: View {
                         let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                         let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: m2Icon)
                         if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        currencyDict[currencyCode]!.append((method: methodName1, quantity: item.quantity, subtotal: sub1))
+                        // Fractional units: qty proportional to each method's share
+                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let qty2 = Decimal(item.quantity) - qty1
+                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
                         if sub2 > 0 {
-                            currencyDict[currencyCode]!.append((method: methodName2, quantity: 0, subtotal: sub2))
+                            currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2))
                         }
                     } else {
                         let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                         if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
+                        currencyDict[currencyCode]!.append((method: methodName, quantity: Decimal(item.quantity), subtotal: item.subtotal))
                     }
                 }
             }
@@ -170,7 +173,7 @@ struct RegistryView: View {
             var currencySections: [CurrencySection] = []
             for (code, transactions) in currencyDict {
                 // Aggregate by method
-                var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+                var methodDict: [String: (units: Decimal, subtotal: Decimal)] = [:]
                 for trans in transactions {
                     if let existing = methodDict[trans.method] {
                         methodDict[trans.method] = (existing.units + trans.quantity, existing.subtotal + trans.subtotal)
@@ -291,7 +294,7 @@ struct RegistryView: View {
             let (category, items) = value
             
             // Group by currency and payment method
-            var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
+            var currencyDict: [String: [(method: String, quantity: Decimal, subtotal: Decimal)]] = [:]
             var totalInMainCurrency = Decimal(0)
             var totalUnits = 0
             
@@ -314,14 +317,17 @@ struct RegistryView: View {
                         let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                         let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: m2Icon)
                         if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        currencyDict[currencyCode]!.append((method: methodName1, quantity: item.quantity, subtotal: sub1))
+                        // Fractional units proportional to each method's share
+                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let qty2 = Decimal(item.quantity) - qty1
+                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
                         if sub2 > 0 {
-                            currencyDict[currencyCode]!.append((method: methodName2, quantity: 0, subtotal: sub2))
+                            currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2))
                         }
                     } else {
                         let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                         if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
+                        currencyDict[currencyCode]!.append((method: methodName, quantity: Decimal(item.quantity), subtotal: item.subtotal))
                     }
                 }
             }
@@ -330,7 +336,7 @@ struct RegistryView: View {
             var currencySections: [CurrencySection] = []
             for (code, transactions) in currencyDict {
                 // Aggregate by method
-                var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+                var methodDict: [String: (units: Decimal, subtotal: Decimal)] = [:]
                 for trans in transactions {
                     if let existing = methodDict[trans.method] {
                         methodDict[trans.method] = (existing.units + trans.quantity, existing.subtotal + trans.subtotal)
@@ -390,6 +396,18 @@ struct RegistryView: View {
     private func currencySymbol(for code: String) -> String {
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
+
+    /// Format a unit count: whole numbers show as "N unit(s)", fractions show as "0.97 units"
+    private func formatUnits(_ units: Decimal) -> String {
+        let count = NSDecimalNumber(decimal: units).intValue
+        let isWhole = Decimal(count) == units
+        if isWhole {
+            return count == 1 ? "1 unit" : "\(count) units"
+        } else {
+            return "\(units.formatted(.number.precision(.fractionLength(2)))) units"
+        }
+    }
+
     
     var body: some View {
         VStack(spacing: 0) {
@@ -721,6 +739,18 @@ struct TransactionCard: View {
     private func currencySymbol(for code: String) -> String {
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
+
+    /// Format a unit count: whole numbers show as "N unit(s)", fractions show as "0.97 units"
+    private func formatUnits(_ units: Decimal) -> String {
+        let count = NSDecimalNumber(decimal: units).intValue
+        let isWhole = Decimal(count) == units
+        if isWhole {
+            return count == 1 ? "1 unit" : "\(count) units"
+        } else {
+            return "\(units.formatted(.number.precision(.fractionLength(2)))) units"
+        }
+    }
+
 
     /// Convert a main-currency splitAmount to the charge currency for display.
     private func splitDisplayAmount(_ mainAmount: Decimal, chargeCode: String) -> Decimal {
@@ -1058,7 +1088,7 @@ struct CategoryGroupCard: View {
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            Text("\(pm.units) units")
+                            Text(formatUnits(pm.units))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 70, alignment: .trailing)
@@ -1082,6 +1112,18 @@ struct CategoryGroupCard: View {
     private func currencySymbol(for code: String) -> String {
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
+
+    /// Format a unit count: whole numbers show as "N unit(s)", fractions show as "0.97 units"
+    private func formatUnits(_ units: Decimal) -> String {
+        let count = NSDecimalNumber(decimal: units).intValue
+        let isWhole = Decimal(count) == units
+        if isWhole {
+            return count == 1 ? "1 unit" : "\(count) units"
+        } else {
+            return "\(units.formatted(.number.precision(.fractionLength(2)))) units"
+        }
+    }
+
     
     private var mainCurrencySymbol: String {
         let mainCurrency = event.currencies.first(where: { $0.isMain })
@@ -1231,7 +1273,7 @@ struct ProductGroupCard: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
                             // Column 2: Units (fixed width, right-aligned)
-                            Text("\(pm.units) units")
+                            Text(formatUnits(pm.units))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 70, alignment: .trailing)
@@ -1256,6 +1298,18 @@ struct ProductGroupCard: View {
     private func currencySymbol(for code: String) -> String {
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
+
+    /// Format a unit count: whole numbers show as "N unit(s)", fractions show as "0.97 units"
+    private func formatUnits(_ units: Decimal) -> String {
+        let count = NSDecimalNumber(decimal: units).intValue
+        let isWhole = Decimal(count) == units
+        if isWhole {
+            return count == 1 ? "1 unit" : "\(count) units"
+        } else {
+            return "\(units.formatted(.number.precision(.fractionLength(2)))) units"
+        }
+    }
+
     
     private var mainCurrencySymbol: String {
         let mainCurrency = event.currencies.first(where: { $0.isMain })
