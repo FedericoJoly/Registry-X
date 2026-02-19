@@ -126,6 +126,8 @@ struct TransactionExport: Codable, Sendable {
     let currencyCode: String
     let note: String?
     let paymentMethod: String
+    let paymentMethodIcon: String?
+    let transactionRef: String?
     let lineItems: [LineItemExport]
 }
 
@@ -266,6 +268,8 @@ extension Event {
                 currencyCode: trans.currencyCode,
                 note: trans.note,
                 paymentMethod: trans.paymentMethod.rawValue,
+                paymentMethodIcon: trans.paymentMethodIcon,
+                transactionRef: trans.transactionRef,
                 lineItems: lineItemExports
             )
         }
