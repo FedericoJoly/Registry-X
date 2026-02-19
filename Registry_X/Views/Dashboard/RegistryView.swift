@@ -225,10 +225,11 @@ struct RegistryView: View {
                 totalInMainCurrency += subtotalInMain
                 totalUnits += item.quantity
                 
+                // Accumulate per-product subtotals in main currency (same conversion as the header total)
                 if let existing = productDict[item.productName] {
-                    productDict[item.productName] = (existing.quantity + item.quantity, existing.subtotal + item.subtotal)
+                    productDict[item.productName] = (existing.quantity + item.quantity, existing.subtotal + subtotalInMain)
                 } else {
-                    productDict[item.productName] = (item.quantity, item.subtotal)
+                    productDict[item.productName] = (item.quantity, subtotalInMain)
                 }
             }
             
