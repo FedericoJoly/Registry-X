@@ -1417,6 +1417,7 @@ struct PanelView: View {
 
             // The actual registration closure, called after receipt step (or directly)
             func finaliseSplitRegistration(receiptEmail: String?) {
+                print("[Split] finaliseSplitRegistration called. receiptEmail=\(receiptEmail ?? "nil"), method1=\(method1.name), method2=\(method2.name)")
                 let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
                 let mainTotal = pendingSplitAmount1 + pendingSplitAmount2
                 let transaction = Transaction(
@@ -1458,6 +1459,25 @@ struct PanelView: View {
                             product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
                         }
                     }
+                }
+
+                // Send receipt if email provided
+                if let email = receiptEmail, !email.isEmpty {
+                    print("[Split] Attempting to send receipt to \(email)")
+                    // Try method2 first for receipt (usually Cash/Transfer — the simpler method)
+                    let payMethod = method2.toPaymentMethod()
+                    let usesCustom = ReceiptService.usesCustomReceipt(paymentMethod: payMethod)
+                    print("[Split] method2=\(payMethod.rawValue), usesCustomReceipt=\(usesCustom)")
+                    Task {
+                        let result = await ReceiptService.sendCustomReceipt(
+                            transaction: transaction,
+                            event: event,
+                            email: email
+                        )
+                        print("[Split] Receipt send result: success=\(result.success), error=\(result.error ?? "none")")
+                    }
+                } else {
+                    print("[Split] No receipt requested (email nil or empty)")
                 }
 
                 cart.removeAll()

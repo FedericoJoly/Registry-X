@@ -143,13 +143,26 @@ struct RegistryView: View {
                 
                 // Find transaction for this item to get payment method
                 if let transaction = dayTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                    
-                    if currencyDict[currencyCode] == nil {
-                        currencyDict[currencyCode] = []
+                    if transaction.isSplit,
+                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
+                       let m2Icon = transaction.splitMethodIcon, let splitMethod = transaction.splitMethod {
+                        let total = a1 + a2
+                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
+                        let ratio2 = 1 - ratio1
+                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let sub2 = item.subtotal - sub1
+                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: m2Icon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName1, quantity: item.quantity, subtotal: sub1))
+                        if sub2 > 0 {
+                            currencyDict[currencyCode]!.append((method: methodName2, quantity: 0, subtotal: sub2))
+                        }
+                    } else {
+                        let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
                     }
-                    
-                    currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
                 }
             }
             
@@ -290,13 +303,26 @@ struct RegistryView: View {
                 
                 // Find transaction for this item to get payment method
                 if let transaction = dayTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                    
-                    if currencyDict[currencyCode] == nil {
-                        currencyDict[currencyCode] = []
+                    if transaction.isSplit,
+                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
+                       let m2Icon = transaction.splitMethodIcon, let splitMethod = transaction.splitMethod {
+                        let total = a1 + a2
+                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
+                        let ratio2 = 1 - ratio1
+                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let sub2 = item.subtotal - sub1
+                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: m2Icon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName1, quantity: item.quantity, subtotal: sub1))
+                        if sub2 > 0 {
+                            currencyDict[currencyCode]!.append((method: methodName2, quantity: 0, subtotal: sub2))
+                        }
+                    } else {
+                        let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
                     }
-                    
-                    currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
                 }
             }
             
@@ -695,6 +721,14 @@ struct TransactionCard: View {
     private func currencySymbol(for code: String) -> String {
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
+
+    /// Convert a main-currency splitAmount to the charge currency for display.
+    private func splitDisplayAmount(_ mainAmount: Decimal, chargeCode: String) -> Decimal {
+        let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+        guard chargeCode != mainCode else { return mainAmount }
+        let rate = event.currencies.first(where: { $0.code == chargeCode })?.rate ?? 1
+        return mainAmount * rate
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -708,16 +742,16 @@ struct TransactionCard: View {
                    let icon2 = transaction.splitMethodIcon,
                    let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1,
                    let a2 = transaction.splitAmount2, let c2 = transaction.splitCurrencyCode2 {
-                    // Method 1
+                    // Method 1 — convert from main to charge currency for display
                     Image(systemName: paymentIcon)
                         .foregroundStyle(paymentIconColor)
-                    Text(currencySymbol(for: c1) + a1.formatted(.number.precision(.fractionLength(2))))
+                    Text(currencySymbol(for: c1) + splitDisplayAmount(a1, chargeCode: c1).formatted(.number.precision(.fractionLength(2))))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     // Method 2
                     Image(systemName: icon2)
                         .foregroundStyle(splitMethodIconColor(icon: icon2))
-                    Text(currencySymbol(for: c2) + a2.formatted(.number.precision(.fractionLength(2))))
+                    Text(currencySymbol(for: c2) + splitDisplayAmount(a2, chargeCode: c2).formatted(.number.precision(.fractionLength(2))))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {

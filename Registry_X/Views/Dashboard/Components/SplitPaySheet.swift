@@ -108,15 +108,13 @@ struct SplitPaySheet: View {
                     Text("Total")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    HStack(spacing: 4) {
-                        Text(mainSymbol() + derivedTotal.formatted(.number.precision(.fractionLength(2))))
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(isBalanced ? .green : .primary)
-                        if !isBalanced && enteredTotal > 0 {
-                            Text("(\(mainSymbol())\(remaining.formatted(.number.precision(.fractionLength(2)))) remaining)")
-                                .font(.subheadline)
-                                .foregroundStyle(.red)
-                        }
+                    Text(mainSymbol() + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(isBalanced ? .green : .primary)
+                    if !isBalanced && enteredTotal > 0 {
+                        Text("\(mainSymbol())\(remaining.formatted(.number.precision(.fractionLength(2)))) remaining")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
                     }
                 }
                 .padding(.vertical, 16)
