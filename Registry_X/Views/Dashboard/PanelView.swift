@@ -1469,7 +1469,11 @@ struct PanelFooterView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
                         ForEach(event.currencies.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }, id: \.id) { currency in
-                            Button(action: { currentCurrencyCode = currency.code }) {
+                            Button(action: {
+                                currentCurrencyCode = currency.code
+                                overriddenTotal = nil
+                                overriddenCategoryTotals.removeAll()
+                            }) {
                                 Text(currency.symbol + " " + currency.code)
                                     .font(.system(size: 18, weight: .bold))
                                     .frame(width: 90, height: 50)
@@ -1524,7 +1528,11 @@ struct PanelFooterView: View {
                                 let totalSpacing = 10 * (buttonCount - 1)
                                 let buttonWidth = (geometry.size.width - totalSpacing) / buttonCount
                                 
-                                Button(action: { currentCurrencyCode = currency.code }) {
+                                Button(action: {
+                                    currentCurrencyCode = currency.code
+                                    overriddenTotal = nil
+                                    overriddenCategoryTotals.removeAll()
+                                }) {
                                     HStack(spacing: 4) {
                                         Text(currency.symbol)
                                             .font(.system(size: 18, weight: .bold))
