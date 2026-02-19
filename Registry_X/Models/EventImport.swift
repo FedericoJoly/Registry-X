@@ -454,7 +454,16 @@ extension EventExport {
                 totalAmount: transExport.totalAmount,
                 currencyCode: transExport.currencyCode,
                 note: transExport.note,
-                paymentMethod: paymentMethod
+                paymentMethod: paymentMethod,
+                paymentMethodIcon: transExport.paymentMethodIcon,
+                transactionRef: transExport.transactionRef,
+                isSplit: transExport.isSplit,
+                splitMethod: transExport.splitMethod,
+                splitMethodIcon: transExport.splitMethodIcon,
+                splitAmount1: transExport.splitAmount1,
+                splitAmount2: transExport.splitAmount2,
+                splitCurrencyCode1: transExport.splitCurrencyCode1,
+                splitCurrencyCode2: transExport.splitCurrencyCode2
             )
             newTrans.event = event
             modelContext.insert(newTrans)
