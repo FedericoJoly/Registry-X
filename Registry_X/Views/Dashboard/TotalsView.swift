@@ -33,7 +33,7 @@ struct TotalsView: View {
     struct PaymentMethodRow: Identifiable {
         let id = UUID()
         let methodName: String
-        let units: Int
+        let units: Decimal   // may be fractional for split transactions
         let subtotal: Decimal
     }
     
@@ -73,7 +73,7 @@ struct TotalsView: View {
     struct ProductRow: Identifiable {
         let id = UUID()
         let productName: String
-        let units: Int
+        let units: Decimal   // may be fractional for split transactions
         let subtotal: Decimal
     }
     
@@ -133,26 +133,33 @@ struct TotalsView: View {
     }
     
     private var groupedByCurrency: [CurrencyGroup] {
-        var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
+        var currencyDict: [String: [(method: String, quantity: Decimal, subtotal: Decimal)]] = [:]
         
         for transaction in allTransactions {
-            let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-            let quantity = transaction.lineItems.reduce(0) { $0 + $1.quantity }
-            
-            if currencyDict[transaction.currencyCode] == nil {
-                currencyDict[transaction.currencyCode] = []
+            let totalQty = Decimal(transaction.lineItems.reduce(0) { $0 + $1.quantity })
+            if transaction.isSplit,
+               let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
+               let splitMethod = transaction.splitMethod {
+                let total = a1 + a2
+                let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
+                let ratio2 = 1 - ratio1
+                let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: transaction.splitMethodIcon)
+                // Method1 — in main currency
+                if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
+                currencyDict[transaction.currencyCode]!.append((method: methodName1, quantity: totalQty * ratio1, subtotal: a1))
+                // Method2 — in main currency
+                currencyDict[transaction.currencyCode]!.append((method: methodName2, quantity: totalQty * ratio2, subtotal: a2))
+            } else {
+                let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
+                currencyDict[transaction.currencyCode]!.append((method: methodName, quantity: totalQty, subtotal: transaction.totalAmount))
             }
-            
-            currencyDict[transaction.currencyCode]!.append((
-                method: methodName,
-                quantity: quantity,
-                subtotal: transaction.totalAmount
-            ))
         }
         
         var result: [CurrencyGroup] = []
         for (code, transactions) in currencyDict {
-            var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+            var methodDict: [String: (units: Decimal, subtotal: Decimal)] = [:]
             var total = Decimal(0)
             
             for trans in transactions {
@@ -201,7 +208,7 @@ struct TotalsView: View {
         for (productName, value) in productDict {
             let (category, items) = value
             
-            var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
+            var currencyDict: [String: [(method: String, quantity: Decimal, subtotal: Decimal)]] = [:]
             var totalInMainCurrency = Decimal(0)
             var totalUnits = 0
             
@@ -211,19 +218,32 @@ struct TotalsView: View {
                 totalUnits += item.quantity
                 
                 if let transaction = allTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                    
-                    if currencyDict[currencyCode] == nil {
-                        currencyDict[currencyCode] = []
+                    if transaction.isSplit,
+                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
+                       let splitMethod = transaction.splitMethod {
+                        let total = a1 + a2
+                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
+                        let ratio2 = 1 - ratio1
+                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let sub2 = item.subtotal - sub1
+                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let qty2 = Decimal(item.quantity) - qty1
+                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: transaction.splitMethodIcon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
+                        if sub2 > 0 { currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2)) }
+                    } else {
+                        let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName, quantity: Decimal(item.quantity), subtotal: item.subtotal))
                     }
-                    
-                    currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
                 }
             }
             
             var currencySections: [CurrencySection] = []
             for (code, transactions) in currencyDict {
-                var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+                var methodDict: [String: (units: Decimal, subtotal: Decimal)] = [:]
                 for trans in transactions {
                     if let existing = methodDict[trans.method] {
                         methodDict[trans.method] = (existing.units + trans.quantity, existing.subtotal + trans.subtotal)
@@ -289,7 +309,7 @@ struct TotalsView: View {
         for (_, value) in categoryDict {
             let (category, items) = value
             
-            var currencyDict: [String: [(method: String, quantity: Int, subtotal: Decimal)]] = [:]
+            var currencyDict: [String: [(method: String, quantity: Decimal, subtotal: Decimal)]] = [:]
             var totalInMainCurrency = Decimal(0)
             var totalUnits = 0
             
@@ -299,19 +319,32 @@ struct TotalsView: View {
                 totalUnits += item.quantity
                 
                 if let transaction = allTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                    
-                    if currencyDict[currencyCode] == nil {
-                        currencyDict[currencyCode] = []
+                    if transaction.isSplit,
+                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
+                       let splitMethod = transaction.splitMethod {
+                        let total = a1 + a2
+                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
+                        let ratio2 = 1 - ratio1
+                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let sub2 = item.subtotal - sub1
+                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                        let qty2 = Decimal(item.quantity) - qty1
+                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: transaction.splitMethodIcon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
+                        if sub2 > 0 { currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2)) }
+                    } else {
+                        let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                        currencyDict[currencyCode]!.append((method: methodName, quantity: Decimal(item.quantity), subtotal: item.subtotal))
                     }
-                    
-                    currencyDict[currencyCode]!.append((method: methodName, quantity: item.quantity, subtotal: item.subtotal))
                 }
             }
             
             var currencySections: [CurrencySection] = []
             for (code, transactions) in currencyDict {
-                var methodDict: [String: (units: Int, subtotal: Decimal)] = [:]
+                var methodDict: [String: (units: Decimal, subtotal: Decimal)] = [:]
                 for trans in transactions {
                     if let existing = methodDict[trans.method] {
                         methodDict[trans.method] = (existing.units + trans.quantity, existing.subtotal + trans.subtotal)
@@ -363,44 +396,45 @@ struct TotalsView: View {
             }
         }
         
-        return subgroupDict.map { (subgroupName, value) in
+        var subgroupResult: [SubgroupGroup] = []
+        for (subgroupName, value) in subgroupDict {
             let (category, items) = value
-            
+
             var productDict: [String: (quantity: Int, subtotal: Decimal)] = [:]
             var totalInMainCurrency = Decimal(0)
             var totalUnits = 0
-            
+
             for (item, currencyCode) in items {
-                let subtotalInMain = convertToMainCurrency(item.subtotal, from: currencyCode)
+                let subtotalInMain: Decimal = convertToMainCurrency(item.subtotal, from: currencyCode)
                 totalInMainCurrency += subtotalInMain
                 totalUnits += item.quantity
-                
                 if let existing = productDict[item.productName] {
                     productDict[item.productName] = (existing.quantity + item.quantity, existing.subtotal + item.subtotal)
                 } else {
                     productDict[item.productName] = (item.quantity, item.subtotal)
                 }
             }
-            
-            let products = productDict.map { (name, value) in
-                ProductRow(productName: name, units: value.quantity, subtotal: value.subtotal)
-            }.sorted { prod1, prod2 in
-                // Get products from event to access sortOrder
+
+            var products: [ProductRow] = productDict.map { (name, val) in
+                ProductRow(productName: name, units: Decimal(val.quantity), subtotal: val.subtotal)
+            }
+            products.sort { prod1, prod2 in
                 guard let p1 = event.products.first(where: { $0.name == prod1.productName }),
                       let p2 = event.products.first(where: { $0.name == prod2.productName }) else {
                     return prod1.productName < prod2.productName
                 }
                 return p1.sortOrder < p2.sortOrder
             }
-            
-            return SubgroupGroup(
+
+            subgroupResult.append(SubgroupGroup(
                 subgroupName: subgroupName,
                 category: category,
                 totalUnits: totalUnits,
                 total: totalInMainCurrency,
                 products: products
-            )
-        }.sorted { $0.subgroupName < $1.subgroupName }
+            ))
+        }
+        return subgroupResult.sorted { $0.subgroupName < $1.subgroupName }
     }
     
     // MARK: - Helper Functions
@@ -418,6 +452,8 @@ struct TotalsView: View {
     private func currencySymbol(for code: String) -> String {
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
+
+    /// Format a unit count: whole numbers show as "N unit(s)", fractions show "0.97 units"
     
     private func paymentMethodName(_ method: PaymentMethod, icon: String? = nil) -> String {
         // Check icon first for more specific method names
@@ -525,6 +561,23 @@ struct TotalsView: View {
             }
         }
         .background(Color(UIColor.systemGroupedBackground))
+    }
+}
+
+
+// MARK: - Shared Helpers
+/// Format a unit count for display: whole numbers show as "N unit(s)", fractions show "0.97 units"
+
+
+// MARK: - Shared Helpers
+/// Format a unit count for display: whole numbers show as "N unit(s)", fractions show "0.97 units"
+private func formatUnits(_ units: Decimal) -> String {
+    let count = NSDecimalNumber(decimal: units).intValue
+    let isWhole = Decimal(count) == units
+    if isWhole {
+        return count == 1 ? "1 unit" : "\(count) units"
+    } else {
+        return "\(units.formatted(.number.precision(.fractionLength(2)))) units"
     }
 }
 
@@ -742,7 +795,7 @@ struct TotalsProductGroupCard: View {
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            Text("\(pm.units) units")
+                            Text(formatUnits(pm.units))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 70, alignment: .trailing)
@@ -858,7 +911,7 @@ struct TotalsCategoryGroupCard: View {
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             
-                            Text("\(pm.units) units")
+                            Text(formatUnits(pm.units))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .frame(width: 70, alignment: .trailing)
