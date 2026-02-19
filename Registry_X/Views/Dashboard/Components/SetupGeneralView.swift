@@ -192,6 +192,18 @@ struct SetupGeneralView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: closingDateEnabled)
+                
+                // Stock Control Toggle
+                HStack {
+                    Text("Stock Control")
+                        .font(.body)
+                    Spacer()
+                    Toggle("", isOn: $draft.isStockControlEnabled)
+                        .labelsHidden()
+                        .tint(.green)
+                        .scaleEffect(0.8)
+                }
+                .padding(.vertical, 2)
             }
             .padding(16)
             .background(Color(UIColor.secondarySystemGroupedBackground))

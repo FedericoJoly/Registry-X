@@ -573,12 +573,6 @@ class ExcelExportService {
         if currencyCode == mainCode { return amount }
         
         let rate = event.currencies.first(where: { $0.code == currencyCode })?.rate ?? 1.0
-        let converted = amount / rate
-        
-        // Apply round-up if enabled (CRITICAL for matching app totals)
-        if event.isTotalRoundUp {
-            return Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
-        }
-        return converted
+        return amount / rate
     }
 }

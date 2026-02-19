@@ -134,6 +134,7 @@ struct SetupView: View {
         event.isTotalRoundUp = draft.isTotalRoundUp
         event.areCategoriesEnabled = draft.areCategoriesEnabled
         event.arePromosEnabled = draft.arePromosEnabled
+        event.isStockControlEnabled = draft.isStockControlEnabled
         event.defaultProductBackgroundColor = draft.defaultProductBackgroundColor
         event.ratesLastUpdated = draft.ratesLastUpdated
         event.lastModified = Date()
@@ -273,6 +274,7 @@ struct SetupView: View {
                 existing.isPromo = draftProd.isPromo
                 existing.isDeleted = false // Undelete if was deleted
                 existing.sortOrder = index
+                existing.stockQty = draftProd.stockQty
             } else if let deletedProduct = event.products.first(where: { $0.name == draftProd.name && $0.isDeleted }) {
                 // Reuse deleted product with same name (prevents duplicates)
                 deletedProduct.id = draftProd.id
@@ -283,6 +285,7 @@ struct SetupView: View {
                 deletedProduct.isPromo = draftProd.isPromo
                 deletedProduct.isDeleted = false // Undelete
                 deletedProduct.sortOrder = index
+                deletedProduct.stockQty = draftProd.stockQty
             } else {
                 // Create new product
                 let newProd = Product(
@@ -295,6 +298,7 @@ struct SetupView: View {
                     isPromo: draftProd.isPromo,
                     sortOrder: index
                 )
+                newProd.stockQty = draftProd.stockQty
                 newProd.event = event
                 modelContext.insert(newProd)
             }
@@ -332,6 +336,10 @@ struct SetupView: View {
                 existing.nxmN = draftPromo.nxmN
                 existing.nxmM = draftPromo.nxmM
                 existing.nxmProducts = draftPromo.nxmProducts
+                existing.discountValue = draftPromo.discountValue
+                existing.discountType = draftPromo.discountType.rawValue
+                existing.discountTarget = draftPromo.discountTarget.rawValue
+                existing.discountProductIds = try? JSONEncoder().encode(draftPromo.discountProductIds)
                 existing.isActive = draftPromo.isActive
                 existing.sortOrder = index
                 existing.isDeleted = draftPromo.isDeleted
@@ -356,6 +364,10 @@ struct SetupView: View {
                 newPromo.nxmN = draftPromo.nxmN
                 newPromo.nxmM = draftPromo.nxmM
                 newPromo.nxmProducts = draftPromo.nxmProducts
+                newPromo.discountValue = draftPromo.discountValue
+                newPromo.discountType = draftPromo.discountType.rawValue
+                newPromo.discountTarget = draftPromo.discountTarget.rawValue
+                newPromo.discountProductIds = try? JSONEncoder().encode(draftPromo.discountProductIds)
                 newPromo.event = event
                 modelContext.insert(newPromo)
             }
@@ -467,14 +479,7 @@ struct SetupView: View {
                 total += amount
             } else {
                 let rate = event.currencies.first(where: { $0.code == transaction.currencyCode })?.rate ?? 1.0
-                let converted = amount / rate
-                
-                // Apply round-up if enabled
-                if event.isTotalRoundUp {
-                    total += Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
-                } else {
-                    total += converted
-                }
+                total += amount / rate
             }
         }
         
@@ -631,6 +636,18 @@ struct SetupView: View {
                 SetupCategoryButton(title: "Products", icon: "cube.fill", color: Color(red: 0.0, green: 0.2, blue: 0.4))
             }
             .buttonStyle(.plain)
+            
+            let stockEnabled = draftSettings?.isStockControlEnabled == true
+            NavigationLink(destination: stockDetail) {
+                SetupCategoryButton(
+                    title: "Stock",
+                    icon: "shippingbox.fill",
+                    color: stockEnabled ? Color(red: 0.0, green: 0.2, blue: 0.4) : Color.gray
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(!stockEnabled)
+            .opacity(stockEnabled ? 1.0 : 0.5)
         }
     }
     
@@ -668,6 +685,19 @@ struct SetupView: View {
         .padding(.top, 20)
         .padding(.bottom, 20)
         .navigationTitle("Categories")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    
+    private var stockDetail: some View {
+        SetupStockView(
+            event: event,
+            draftProducts: draftBinding.products,
+            isLocked: event.isLocked,
+            mainCurrencySymbol: event.currencies.first(where: { $0.isMain })?.symbol ?? "$"
+        )
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+        .navigationTitle("Stock")
         .navigationBarTitleDisplayMode(.inline)
     }
     
@@ -1092,6 +1122,7 @@ struct DraftEventSettings: Equatable {
     var isTotalRoundUp: Bool
     var areCategoriesEnabled: Bool
     var arePromosEnabled: Bool
+    var isStockControlEnabled: Bool
     var defaultProductBackgroundColor: String
     var currencies: [DraftCurrency] // NEW
     var rates: [DraftRate] // OLD - for migration compatibility
@@ -1127,6 +1158,7 @@ struct DraftEventSettings: Equatable {
         self.isTotalRoundUp = event.isTotalRoundUp
         self.areCategoriesEnabled = event.areCategoriesEnabled
         self.arePromosEnabled = event.arePromosEnabled
+        self.isStockControlEnabled = event.isStockControlEnabled
         self.defaultProductBackgroundColor = event.defaultProductBackgroundColor
         self.ratesLastUpdated = event.ratesLastUpdated
         // Default closingDate to event.date + 7 days at 23:59 if not already set
@@ -1496,6 +1528,7 @@ struct DraftProduct: Identifiable, Equatable {
     var isActive: Bool
     var isPromo: Bool
     var sortOrder: Int
+    var stockQty: Int?   // nil = not tracked
     
     // Track state
     var isNew: Bool = false
@@ -1509,6 +1542,7 @@ struct DraftProduct: Identifiable, Equatable {
         self.isActive = product.isActive
         self.isPromo = product.isPromo
         self.sortOrder = product.sortOrder
+        self.stockQty = product.stockQty
     }
     
     init(name: String, price: Decimal, categoryId: UUID?, subgroup: String, isActive: Bool, isPromo: Bool, sortOrder: Int) {
@@ -1520,6 +1554,7 @@ struct DraftProduct: Identifiable, Equatable {
         self.isActive = isActive
         self.isPromo = isPromo
         self.sortOrder = sortOrder
+        self.stockQty = nil
         self.isNew = true
     }
     
@@ -1532,7 +1567,8 @@ struct DraftProduct: Identifiable, Equatable {
                lhs.subgroup == rhs.subgroup &&
                lhs.isActive == rhs.isActive &&
                lhs.isPromo == rhs.isPromo &&
-               lhs.sortOrder == rhs.sortOrder
+               lhs.sortOrder == rhs.sortOrder &&
+               lhs.stockQty == rhs.stockQty
         // Intentionally exclude isNew from comparison
     }
 }
@@ -1603,6 +1639,11 @@ struct DraftPromo: Identifiable, Equatable {
     var nxmN: Int = 2                  // N x M mode: N value (items purchased)
     var nxmM: Int = 1                  // N x M mode: M value (items paid for)
     var nxmProducts: Set<UUID> = []    // N x M mode: eligible products
+    // Discount mode properties
+    var discountValue: Decimal = 0
+    var discountType: DiscountType = .percentage
+    var discountTarget: DiscountTarget = .total
+    var discountProductIds: Set<UUID> = []
     var isActive: Bool
     var sortOrder: Int
     var isDeleted: Bool
@@ -1626,12 +1667,16 @@ struct DraftPromo: Identifiable, Equatable {
         self.nxmN = promo.nxmN ?? 2
         self.nxmM = promo.nxmM ?? 1
         self.nxmProducts = promo.nxmProducts
+        self.discountValue = promo.discountValue ?? 0
+        self.discountType = DiscountType(rawValue: promo.discountType ?? "percentage") ?? .percentage
+        self.discountTarget = DiscountTarget(rawValue: promo.discountTarget ?? "total") ?? .total
+        self.discountProductIds = (try? JSONDecoder().decode(Set<UUID>.self, from: promo.discountProductIds ?? Data())) ?? []
         self.isActive = promo.isActive
         self.sortOrder = promo.sortOrder
         self.isDeleted = promo.isDeleted
     }
     
-    init(name: String, mode: PromoMode = .typeList, categoryId: UUID?, categoryName: String?, maxQuantity: Int = 7, tierPrices: [Int: Decimal] = [:], incrementalPrice8to9: Decimal? = nil, incrementalPrice10Plus: Decimal? = nil, starProducts: [UUID: Decimal] = [:], comboProducts: Set<UUID> = [], comboPrice: Decimal? = nil, nxmN: Int = 2, nxmM: Int = 1, nxmProducts: Set<UUID> = [], isActive: Bool = true, sortOrder: Int = 0) {
+    init(name: String, mode: PromoMode = .typeList, categoryId: UUID?, categoryName: String?, maxQuantity: Int = 7, tierPrices: [Int: Decimal] = [:], incrementalPrice8to9: Decimal? = nil, incrementalPrice10Plus: Decimal? = nil, starProducts: [UUID: Decimal] = [:], comboProducts: Set<UUID> = [], comboPrice: Decimal? = nil, nxmN: Int = 2, nxmM: Int = 1, nxmProducts: Set<UUID> = [], discountValue: Decimal = 0, discountType: DiscountType = .percentage, discountTarget: DiscountTarget = .total, discountProductIds: Set<UUID> = [], isActive: Bool = true, sortOrder: Int = 0) {
         self.id = UUID()
         self.name = name
         self.mode = mode
@@ -1647,6 +1692,10 @@ struct DraftPromo: Identifiable, Equatable {
         self.nxmN = nxmN
         self.nxmM = nxmM
         self.nxmProducts = nxmProducts
+        self.discountValue = discountValue
+        self.discountType = discountType
+        self.discountTarget = discountTarget
+        self.discountProductIds = discountProductIds
         self.isActive = isActive
         self.sortOrder = sortOrder
         self.isDeleted = false
@@ -1668,6 +1717,10 @@ struct DraftPromo: Identifiable, Equatable {
                lhs.nxmN == rhs.nxmN &&
                lhs.nxmM == rhs.nxmM &&
                lhs.nxmProducts == rhs.nxmProducts &&
+               lhs.discountValue == rhs.discountValue &&
+               lhs.discountType == rhs.discountType &&
+               lhs.discountTarget == rhs.discountTarget &&
+               lhs.discountProductIds == rhs.discountProductIds &&
                lhs.isActive == rhs.isActive &&
                lhs.sortOrder == rhs.sortOrder &&
                lhs.isDeleted == rhs.isDeleted

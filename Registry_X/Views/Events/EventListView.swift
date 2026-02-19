@@ -536,6 +536,9 @@ struct EventListView: View {
         // Copy Stripe integration enabled flag
         newEvent.stripeIntegrationEnabled = original.stripeIntegrationEnabled
         
+        // Copy stock control settings
+        newEvent.isStockControlEnabled = original.isStockControlEnabled
+        
         // Save first to get ID
         modelContext.insert(newEvent)
         
@@ -593,6 +596,7 @@ struct EventListView: View {
                 isPromo: prod.isPromo,
                 sortOrder: prod.sortOrder
             )
+            newProd.stockQty = prod.stockQty
             newProd.event = newEvent
             modelContext.insert(newProd)
         }
@@ -644,6 +648,26 @@ struct EventListView: View {
             newPromo.comboProducts = newComboProducts
             newPromo.comboPrice = promo.comboPrice
             
+            // Copy N x M products (map to new product IDs)
+            var newNxMProducts: Set<UUID> = []
+            for oldId in promo.nxmProducts {
+                if let newProductId = productIdMap[oldId]?.id {
+                    newNxMProducts.insert(newProductId)
+                }
+            }
+            newPromo.nxmProducts = newNxMProducts
+            newPromo.nxmN = promo.nxmN
+            newPromo.nxmM = promo.nxmM
+            
+            // Copy discount properties (map product IDs)
+            newPromo.discountValue = promo.discountValue
+            newPromo.discountType = promo.discountType
+            newPromo.discountTarget = promo.discountTarget
+            if let oldIds = try? JSONDecoder().decode(Set<UUID>.self, from: promo.discountProductIds ?? Data()) {
+                let newIds = Set(oldIds.compactMap { productIdMap[$0]?.id })
+                newPromo.discountProductIds = try? JSONEncoder().encode(newIds)
+            }
+            
             newPromo.event = newEvent
             modelContext.insert(newPromo)
         }
@@ -672,7 +696,8 @@ struct EventListView: View {
                     icon: method.icon,
                     colorHex: method.colorHex,
                     isEnabled: method.isEnabled,
-                    enabledCurrencies: remappedCurrencies
+                    enabledCurrencies: remappedCurrencies,
+                    enabledProviders: method.enabledProviders
                 )
                 remappedMethods.append(newMethod)
             }

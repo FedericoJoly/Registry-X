@@ -39,6 +39,9 @@ struct EventExport: Codable, Sendable {
     // Closing Date
     let closingDate: Date?
     
+    // Stock Control
+    let isStockControlEnabled: Bool?
+    
     // Data
     let currencies: [CurrencyExport]
     let categories: [CategoryExport]
@@ -81,11 +84,12 @@ struct ProductExport: Codable, Sendable {
     let isActive: Bool
     let isPromo: Bool
     let sortOrder: Int
+    let stockQty: Int?  // nil = not tracked
 }
 
 struct PromoExport: Codable, Sendable {
     let name: String
-    let mode: String // "typeList" or "combo"
+    let mode: String
     let sortOrder: Int
     let isActive: Bool
     let categoryId: UUID?
@@ -99,6 +103,11 @@ struct PromoExport: Codable, Sendable {
     let nxmN: Int?
     let nxmM: Int?
     let nxmProductIds: [UUID]
+    // Discount mode
+    let discountValue: Decimal?
+    let discountType: String?
+    let discountTarget: String?
+    let discountProductIds: [UUID]
 }
 
 struct PaymentMethodExport: Codable, Sendable {
@@ -171,7 +180,8 @@ extension Event {
                 subgroup: prod.subgroup,
                 isActive: prod.isActive,
                 isPromo: prod.isPromo,
-                sortOrder: prod.sortOrder
+                sortOrder: prod.sortOrder,
+                stockQty: prod.stockQty
             )
         }
         
@@ -185,7 +195,11 @@ extension Event {
                 modeString = "combo"
             case .nxm:
                 modeString = "nxm"
+            case .discount:
+                modeString = "discount"
             }
+            
+            let discountIds = (try? JSONDecoder().decode([UUID].self, from: promo.discountProductIds ?? Data())) ?? []
             
             return PromoExport(
                 name: promo.name,
@@ -202,7 +216,11 @@ extension Event {
                 comboPrice: promo.comboPrice,
                 nxmN: promo.nxmN,
                 nxmM: promo.nxmM,
-                nxmProductIds: Array(promo.nxmProducts)
+                nxmProductIds: Array(promo.nxmProducts),
+                discountValue: promo.discountValue,
+                discountType: promo.discountType,
+                discountTarget: promo.discountTarget,
+                discountProductIds: discountIds
             )
         }
         
@@ -275,6 +293,7 @@ extension Event {
             fromEmail: fromEmail,
             receiptSettingsData: receiptSettingsData,
             closingDate: closingDate,
+            isStockControlEnabled: isStockControlEnabled,
             currencies: currencyExports,
             categories: categoryExports,
             products: productExports,

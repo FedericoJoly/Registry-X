@@ -39,6 +39,8 @@ final class Event {
     var pinCode: String?
     var closingDate: Date?
     
+    var isStockControlEnabled: Bool = false
+    
     // Relationships
     @Relationship(deleteRule: .cascade) var products: [Product] = []
     @Relationship(deleteRule: .cascade) var categories: [Category] = []
@@ -124,6 +126,7 @@ final class Product {
     var isPromo: Bool = false
     var sortOrder: Int = 0
     var isDeleted: Bool = false // Soft delete
+    var stockQty: Int? = nil    // nil = not tracked; 0+ = tracked quantity
     
     @Relationship var category: Category?
     @Relationship(inverse: \Event.products) var event: Event?
@@ -325,6 +328,12 @@ final class Promo {
     var nxmM: Int?
     var nxmProductIds: Data?
     
+    // Discount mode properties
+    var discountValue: Decimal?
+    var discountType: String?   // "numeric" or "percentage"
+    var discountTarget: String? // "total" or "products"
+    var discountProductIds: Data? // JSON Set<UUID>
+    
     var event: Event?
     
     init(id: UUID = UUID(), name: String, mode: PromoMode = .typeList, sortOrder: Int = 0, isActive: Bool = true, isDeleted: Bool = false, category: Category? = nil, maxQuantity: Int = 7, incrementalPrice8to9: Decimal? = nil, incrementalPrice10Plus: Decimal? = nil) {
@@ -389,4 +398,15 @@ enum PromoMode: String, Codable {
     case typeList
     case combo
     case nxm
+    case discount
+}
+
+enum DiscountType: String, Codable, CaseIterable {
+    case numeric
+    case percentage
+}
+
+enum DiscountTarget: String, Codable, CaseIterable {
+    case total
+    case products
 }

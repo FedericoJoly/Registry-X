@@ -412,13 +412,7 @@ struct TotalsView: View {
         if currencyCode == mainCode { return amount }
         
         let rate = event.currencies.first(where: { $0.code == currencyCode })?.rate ?? 1.0
-        let converted = amount / rate
-        
-        // Apply round-up if enabled
-        if event.isTotalRoundUp {
-            return Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
-        }
-        return converted
+        return amount / rate
     }
     
     private func currencySymbol(for code: String) -> String {

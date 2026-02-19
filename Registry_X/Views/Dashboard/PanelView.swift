@@ -18,6 +18,7 @@ struct PanelView: View {
     @State private var currentCurrencyCode: String
     @State private var note: String = ""
     @State private var selectedTab = 0 // For category paging
+    @State private var activeDiscountPromoIds: Set<UUID> = [] // Discount promos toggled ON in this session
     
     // Alerts
     @State private var showingTransactionNotification = false
@@ -196,6 +197,38 @@ struct PanelView: View {
                 if qty > 0, let product = event.products.first(where: { $0.id == id }) {
                     sum += convertPrice(product.price) * Decimal(qty)
                 }
+            }
+        }
+        
+        // Apply active discount promos (additive, applied after all other promos)
+        let activeDiscountPromos = event.promos.filter {
+            $0.isActive && !$0.isDeleted && $0.mode == .discount && activeDiscountPromoIds.contains($0.id)
+        }
+        for discountPromo in activeDiscountPromos {
+            guard let value = discountPromo.discountValue, value > 0 else { continue }
+            let target = DiscountTarget(rawValue: discountPromo.discountTarget ?? "total") ?? .total
+            let type_ = DiscountType(rawValue: discountPromo.discountType ?? "percentage") ?? .percentage
+            
+            if target == .total {
+                // Apply to entire sum
+                let deduction: Decimal = type_ == .percentage
+                    ? sum * (value / 100)
+                    : value
+                sum = max(0, sum - deduction)
+            } else {
+                // Apply to selected products only
+                let selectedIds = (try? JSONDecoder().decode(Set<UUID>.self, from: discountPromo.discountProductIds ?? Data())) ?? []
+                var productDeduction: Decimal = 0
+                for (productId, qty) in cart {
+                    guard qty > 0, selectedIds.contains(productId),
+                          let product = event.products.first(where: { $0.id == productId }) else { continue }
+                    let productSubtotal = convertPrice(product.price) * Decimal(qty)
+                    let deduction: Decimal = type_ == .percentage
+                        ? productSubtotal * (value / 100)
+                        : min(value, productSubtotal)
+                    productDeduction += deduction
+                }
+                sum = max(0, sum - productDeduction)
             }
         }
         
@@ -697,6 +730,7 @@ struct PanelView: View {
                 currentCurrencyCode: $currentCurrencyCode,
                 derivedTotal: derivedTotal,
                 note: $note,
+                activeDiscountPromoIds: $activeDiscountPromoIds,
                 categories: event.categories,
                 products: event.products,
                 cart: cart,
@@ -750,6 +784,9 @@ struct PanelView: View {
             Button("Clear", role: .destructive) {
                 cart.removeAll()
                 note = ""
+                activeDiscountPromoIds.removeAll()
+                overriddenTotal = nil
+                overriddenCategoryTotals.removeAll()
             }
             Button("Cancel", role: .cancel) { }
         }
@@ -1020,7 +1057,7 @@ struct PanelView: View {
     
     func processCheckout() {
         guard !event.isLocked else { return }
-        guard derivedTotal > 0 else { return }
+        guard cart.values.contains(where: { $0 > 0 }) else { return }
         
         //Check if receipt prompt should be shown
         if ReceiptService.shouldShowReceiptPrompt(for: selectedPaymentMethod, event: event) {
@@ -1052,7 +1089,8 @@ struct PanelView: View {
         for (id, qty) in cart {
             if qty > 0, let product = event.products.first(where: { $0.id == id }) {
                 // Use prorated price if there's an override, otherwise use converted price
-                let finalPrice = proratedUnitPrice(for: id, quantity: qty)
+                let basePrice = proratedUnitPrice(for: id, quantity: qty)
+                let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
                 let line = LineItem(
                     productName: product.name,
                     quantity: qty,
@@ -1065,6 +1103,15 @@ struct PanelView: View {
         }
         
         event.transactions.append(transaction)
+        
+        // Deduct stock quantities if stock control is enabled
+        if event.isStockControlEnabled {
+            for lineItem in transaction.lineItems {
+                if let product = lineItem.product, product.stockQty != nil {
+                    product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
+                }
+            }
+        }
         
         // Send custom receipt if email provided and it's a custom receipt payment method
         if let email = receiptEmail,
@@ -1108,7 +1155,7 @@ struct PanelView: View {
     
     func processCheckoutWithStripe(paymentIntentId: String?, sessionId: String?, txnRef: String) {
         guard !event.isLocked else { return }
-        guard derivedTotal > 0 else { return }
+        guard cart.values.contains(where: { $0 > 0 }) else { return }
         
         // Determine payment status
         let status = paymentIntentId != nil || sessionId != nil ? "succeeded" : "manual"
@@ -1129,7 +1176,8 @@ struct PanelView: View {
         for (id, qty) in cart {
             if qty > 0, let product = event.products.first(where: { $0.id == id }) {
                 // Use prorated price if there's an override, otherwise use converted price
-                let finalPrice = proratedUnitPrice(for: id, quantity: qty)
+                let basePrice = proratedUnitPrice(for: id, quantity: qty)
+                let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
                 let line = LineItem(
                     productName: product.name,
                     quantity: qty,
@@ -1142,6 +1190,16 @@ struct PanelView: View {
         }
         
         event.transactions.append(transaction)
+        
+        // Deduct stock quantities if stock control is enabled
+        if event.isStockControlEnabled {
+            for lineItem in transaction.lineItems {
+                if let product = lineItem.product, product.stockQty != nil {
+                    product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
+                }
+            }
+        }
+        
         cart.removeAll()
         note = ""
         
@@ -1166,6 +1224,69 @@ struct PanelView: View {
                 }
             }
         }
+    }
+    
+    /// Returns the unit price for a line item after applying any active discount promos.
+    /// - Total-mode discounts: distributed proportionally across all line items by their share of the pre-discount total.
+    /// - Product-mode discounts: applied directly to the matching product's unit price.
+    func discountAdjustedUnitPrice(for productId: UUID, quantity: Int, baseUnitPrice: Decimal) -> Decimal {
+        let activeDiscountPromos = event.promos.filter {
+            $0.isActive && !$0.isDeleted && $0.mode == .discount && activeDiscountPromoIds.contains($0.id)
+        }
+        guard !activeDiscountPromos.isEmpty else { return baseUnitPrice }
+        
+        // Compute the pre-discount total (sum of all base unit prices × qty)
+        var preDiscountTotal: Decimal = 0
+        for (id, qty) in cart {
+            if qty > 0 {
+                preDiscountTotal += proratedUnitPrice(for: id, quantity: qty) * Decimal(qty)
+            }
+        }
+        guard preDiscountTotal > 0 else { return baseUnitPrice }
+        
+        // Separate total-mode and product-mode promos
+        var totalModeDiscount: Decimal = 0
+        var productModeUnitPrice: Decimal = baseUnitPrice
+        var hasProductModeDiscount = false
+        
+        for discountPromo in activeDiscountPromos {
+            guard let value = discountPromo.discountValue, value > 0 else { continue }
+            let target = DiscountTarget(rawValue: discountPromo.discountTarget ?? "total") ?? .total
+            let type_ = DiscountType(rawValue: discountPromo.discountType ?? "percentage") ?? .percentage
+            
+            if target == .total {
+                let deduction: Decimal = type_ == .percentage
+                    ? preDiscountTotal * (value / 100)
+                    : value
+                totalModeDiscount += min(deduction, preDiscountTotal)
+            } else {
+                // Product-specific: only discount selected products
+                let selectedIds = (try? JSONDecoder().decode(Set<UUID>.self, from: discountPromo.discountProductIds ?? Data())) ?? []
+                if selectedIds.contains(productId) {
+                    let productSubtotal = productModeUnitPrice * Decimal(quantity)
+                    let deduction: Decimal = type_ == .percentage
+                        ? productSubtotal * (value / 100)
+                        : min(value, productSubtotal)
+                    let discountedSubtotal = max(0, productSubtotal - deduction)
+                    productModeUnitPrice = discountedSubtotal / Decimal(quantity)
+                    hasProductModeDiscount = true
+                }
+            }
+        }
+        
+        // Apply product-mode discounts first (already computed above)
+        var result = hasProductModeDiscount ? productModeUnitPrice : baseUnitPrice
+        
+        // Then distribute total-mode discount proportionally by this product's share
+        if totalModeDiscount > 0 {
+            let thisProductSubtotal = result * Decimal(quantity)
+            let share = preDiscountTotal > 0 ? (baseUnitPrice * Decimal(quantity)) / preDiscountTotal : 0
+            let productDiscount = totalModeDiscount * share
+            let discountedSubtotal = max(0, thisProductSubtotal - productDiscount)
+            result = discountedSubtotal / Decimal(quantity)
+        }
+        
+        return result
     }
     
     func applyOverride() {
@@ -1240,6 +1361,7 @@ struct PanelFooterView: View {
     @Binding var currentCurrencyCode: String
     let derivedTotal: Decimal
     @Binding var note: String
+    @Binding var activeDiscountPromoIds: Set<UUID>
     
     let categories: [Category]
     let products: [Product]
@@ -1420,50 +1542,104 @@ struct PanelFooterView: View {
                 .padding(.top, 16) // Add top padding
             }
             
-            // Notes field - full width
+            // Notes + Promo buttons row
+            let discountPromos = event.promos.filter { $0.isActive && !$0.isDeleted && $0.mode == .discount }
             HStack(spacing: 8) {
-                Image(systemName: "pencil")
-                    .foregroundStyle(Color.gray.opacity(0.5))
-                    .font(.system(size: 15))
-                TextField("Notes (optional)", text: $note)
-                    .font(.system(size: 15))
-                    .focused($isNotesFocused)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        isNotesFocused = false
+                if !discountPromos.isEmpty {
+                    // Promo buttons (left side, up to half width)
+                    GeometryReader { geo in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                let count = CGFloat(min(discountPromos.count, 3))
+                                let spacing = 6 * (count - 1)
+                                let btnWidth = (geo.size.width - spacing) / count
+                                ForEach(discountPromos) { promo in
+                                    let isOn = activeDiscountPromoIds.contains(promo.id)
+                                    Button(action: {
+                                        if isOn {
+                                            activeDiscountPromoIds.remove(promo.id)
+                                        } else {
+                                            activeDiscountPromoIds.insert(promo.id)
+                                        }
+                                    }) {
+                                        Text(promo.name)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.7)
+                                            .frame(width: discountPromos.count <= 3 ? btnWidth : 90, height: 46)
+                                            .background(isOn ? Color.green : Color(UIColor.systemGray5))
+                                            .foregroundStyle(isOn ? .white : .primary)
+                                            .cornerRadius(10)
+                                    }
+                                }
+                            }
+                        }
                     }
+                    .frame(height: 46)
+                    
+                    // Notes field (right half)
+                    HStack(spacing: 8) {
+                        Image(systemName: "pencil")
+                            .foregroundStyle(Color.gray.opacity(0.5))
+                            .font(.system(size: 15))
+                        TextField("Notes (optional)", text: $note)
+                            .font(.system(size: 15))
+                            .focused($isNotesFocused)
+                            .submitLabel(.done)
+                            .onSubmit { isNotesFocused = false }
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 46)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                } else {
+                    // No discount promos — full-width notes field
+                    HStack(spacing: 8) {
+                        Image(systemName: "pencil")
+                            .foregroundStyle(Color.gray.opacity(0.5))
+                            .font(.system(size: 15))
+                        TextField("Notes (optional)", text: $note)
+                            .font(.system(size: 15))
+                            .focused($isNotesFocused)
+                            .submitLabel(.done)
+                            .onSubmit { isNotesFocused = false }
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 46)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                }
             }
-            .padding(.horizontal, 12)
-            .frame(height: 46) // Match Clear/Pay Now button height
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-            )
             .padding(.top, 10)
             .scrollDismissesKeyboard(.interactively)
             
             // Action buttons - Clear 30%, Pay Now 70%
+            let cartHasItems = cart.values.contains { $0 > 0 }
             GeometryReader { geometry in
                 HStack(spacing: 10) {
                     Button(action: onClear) {
                         Text("Clear")
                             .font(.system(size: 18, weight: .semibold))
                             .frame(width: geometry.size.width * 0.35 - 5, height: 46)
-                            .background(derivedTotal > 0 ? Color.red : Color.gray)
+                            .background(cartHasItems ? Color.red : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)
                     }
-                    .disabled(derivedTotal <= 0)
+                    .disabled(!cartHasItems)
                     
                     Button(action: onCheckout) {
                         Text("Pay Now")
                             .font(.system(size: 18, weight: .semibold))
                             .frame(width: geometry.size.width * 0.65 - 5, height: 46)
-                            .background(derivedTotal > 0 ? Color.green : Color.gray)
+                            .background(cartHasItems ? Color.green : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)
                     }
-                    .disabled(derivedTotal <= 0)
+                    .disabled(!cartHasItems)
                 }
             }
             .frame(height: 46)
@@ -1504,79 +1680,139 @@ struct ProductListView: View {
     let rate: Decimal
     let currencyCode: String
     let event: Event
-    var defaultBackgroundColor: String? = nil // Optional default color when category is nil
-    
+    var defaultBackgroundColor: String? = nil
+
+    // Stock warning toast state
+    @State private var stockWarningText: String = ""
+    @State private var showingStockWarning: Bool = false
+
+    /// True when this product is fully out of stock (qty 0) and stock control is active
+    private func isOutOfStock(_ product: Product) -> Bool {
+        guard event.isStockControlEnabled, let qty = product.stockQty else { return false }
+        return qty <= 0
+    }
+
+    /// Remaining available units for a product (stockQty minus what's already in cart)
+    private func remainingStock(for product: Product) -> Int? {
+        guard event.isStockControlEnabled, let stockQty = product.stockQty else { return nil }
+        let inCart = cart[product.id] ?? 0
+        return max(0, stockQty - inCart)
+    }
+
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(products) { product in
-                    let qty = cart[product.id] ?? 0
-                    // Always convert using exchange rate without rounding
-                    let convertedPrice = product.price * rate
-                    let rowTotal = convertedPrice * Decimal(qty)
-                    
-                    VStack(spacing: 0) {
-                        HStack(spacing: 0) {
-                            Text(product.name)
-                                .font(.system(size: 16))
-                                .lineLimit(2) // Allow 2 lines, wraps at word boundaries
-                                .foregroundStyle(Color.black) // Dark text for visibility in dark mode
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 12)
-                            
-                            Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
-                                .font(.system(size: 16))
-                                .foregroundStyle(Color.black) // Dark text for visibility in dark mode
-                                .frame(width: 80, alignment: .trailing)
-                            
-                            Text("\(qty)")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color.black) // Dark text for visibility in dark mode
-                                .frame(width: 40, alignment: .trailing) // Reduced from 50 to 40
-                            
-                            Text(currencySymbol(for: currencyCode) + rowTotal.formatted(.number.precision(.fractionLength(2))))
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(Color.black) // Dark text for visibility in dark mode
-                                .frame(width: 80, alignment: .trailing)
-                            
-                            HStack(spacing: 6) {
-                                Button {
-                                    updateCart(id: product.id, delta: -1)
-                                } label: {
-                                    Image(systemName: "minus")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .frame(width: 32, height: 32)
-                                        .background(Color.red)
-                                        .foregroundStyle(.white)
-                                        .clipShape(Circle())
+        ZStack(alignment: .top) {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(products) { product in
+                        let qty = cart[product.id] ?? 0
+                        let convertedPrice = product.price * rate
+                        let rowTotal = convertedPrice * Decimal(qty)
+                        let outOfStock = isOutOfStock(product)
+
+                        VStack(spacing: 0) {
+                            HStack(spacing: 0) {
+                                Text(product.name)
+                                    .font(.system(size: 16))
+                                    .lineLimit(2)
+                                    .foregroundStyle(outOfStock ? Color.gray : Color.black)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 12)
+
+                                Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(outOfStock ? Color.gray : Color.black)
+                                    .frame(width: 80, alignment: .trailing)
+
+                                Text("\(qty)")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(outOfStock ? Color.gray : Color.black)
+                                    .frame(width: 40, alignment: .trailing)
+
+                                Text(currencySymbol(for: currencyCode) + rowTotal.formatted(.number.precision(.fractionLength(2))))
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(outOfStock ? Color.gray : Color.black)
+                                    .frame(width: 80, alignment: .trailing)
+
+                                HStack(spacing: 6) {
+                                    Button {
+                                        updateCart(id: product.id, delta: -1)
+                                    } label: {
+                                        Image(systemName: "minus")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .frame(width: 32, height: 32)
+                                            .background(Color.red)
+                                            .foregroundStyle(.white)
+                                            .clipShape(Circle())
+                                    }
+
+                                    Button {
+                                        tryAddToCart(product: product)
+                                    } label: {
+                                        Image(systemName: "plus")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .frame(width: 32, height: 32)
+                                            .background(outOfStock ? Color.gray : Color.green)
+                                            .foregroundStyle(.white)
+                                            .clipShape(Circle())
+                                    }
+                                    .disabled(outOfStock)
                                 }
-                                
-                                Button {
-                                    updateCart(id: product.id, delta: 1)
-                                } label: {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .frame(width: 32, height: 32)
-                                        .background(Color.green)
-                                        .foregroundStyle(.white)
-                                        .clipShape(Circle())
-                                }
+                                .frame(width: 85, alignment: .center)
                             }
-                            .frame(width: 85, alignment: .center)
+                            .frame(height: 44)
+                            .opacity(outOfStock ? 0.5 : 1.0)
+
+                            Divider()
+                                .background(Color.white.opacity(0.3))
                         }
-                        .frame(height: 44) // Changed from 50 to 44 for exact fit
-                        
-                        Divider()
-                            .background(Color.white.opacity(0.3))
                     }
                 }
+                .background(
+                    category.map { Color(hex: $0.hexColor) } ?? Color(hex: defaultBackgroundColor ?? "#FFFFFF")
+                )
             }
-            .background(
-                category.map { Color(hex: $0.hexColor) } ?? Color(hex: defaultBackgroundColor ?? "#FFFFFF")
-            )
+
+            // Stock warning toast
+            if showingStockWarning {
+                Text(stockWarningText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.95))
+                    .cornerRadius(10)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+            }
+        }
+        .animation(.spring(response: 0.3), value: showingStockWarning)
+    }
+
+    /// Attempts to add 1 unit to cart, showing a warning if stock would be exceeded
+    private func tryAddToCart(product: Product) {
+        if let remaining = remainingStock(for: product), remaining <= 0 {
+            showStockWarning(for: product.name)
+            return
+        }
+        updateCart(id: product.id, delta: 1)
+    }
+
+    private func showStockWarning(for productName: String) {
+        stockWarningText = "Not enough units of \(productName) in stock"
+        withAnimation {
+            showingStockWarning = true
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            await MainActor.run {
+                withAnimation {
+                    showingStockWarning = false
+                }
+            }
         }
     }
-    
+
     func updateCart(id: UUID, delta: Int) {
         let current = cart[id] ?? 0
         let new = current + delta
@@ -1584,9 +1820,8 @@ struct ProductListView: View {
             cart[id] = new
         }
     }
-    
+
     func currencySymbol(for code: String) -> String {
-        // Use currency model symbol if available, fallback to currency code
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
 }

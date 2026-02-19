@@ -55,6 +55,7 @@ extension EventExport {
         // Set Stripe integration enabled flag (not in init)
 
         event.stripeIntegrationEnabled = stripeIntegrationEnabled ?? false
+        event.isStockControlEnabled = isStockControlEnabled ?? false
         
         modelContext.insert(event)
         
@@ -112,6 +113,7 @@ extension EventExport {
                 sortOrder: prodExport.sortOrder
             )
             newProd.event = event
+            newProd.stockQty = prodExport.stockQty
             modelContext.insert(newProd)
             productMap[prodExport.id] = newProd
         }
@@ -124,6 +126,8 @@ extension EventExport {
                 promoMode = .combo
             case "nxm":
                 promoMode = .nxm
+            case "discount":
+                promoMode = .discount
             default:
                 promoMode = .typeList
             }
@@ -155,6 +159,14 @@ extension EventExport {
             newPromo.nxmN = promoExport.nxmN
             newPromo.nxmM = promoExport.nxmM
             newPromo.nxmProducts = Set(promoExport.nxmProductIds)
+            
+            // Set discount properties
+            newPromo.discountValue = promoExport.discountValue
+            newPromo.discountType = promoExport.discountType
+            newPromo.discountTarget = promoExport.discountTarget
+            if let ids = promoExport.discountProductIds as [UUID]?, !ids.isEmpty {
+                newPromo.discountProductIds = try? JSONEncoder().encode(Set(ids))
+            }
             
             newPromo.event = event
             modelContext.insert(newPromo)
@@ -296,6 +308,7 @@ extension EventExport {
                 )
                 newProduct.event = event
                 newProduct.subgroup = prodExport.subgroup
+                newProduct.stockQty = prodExport.stockQty
                 
                 // Link to category if available
                 if let oldCatId = prodExport.categoryId, let newCatId = categoryIdMap[oldCatId] {
@@ -363,6 +376,14 @@ extension EventExport {
             newPromo.nxmProducts = newNxMProducts
             newPromo.nxmN = promoExport.nxmN
             newPromo.nxmM = promoExport.nxmM
+            
+            // Set discount properties
+            newPromo.discountValue = promoExport.discountValue
+            newPromo.discountType = promoExport.discountType
+            newPromo.discountTarget = promoExport.discountTarget
+            if let ids = promoExport.discountProductIds as [UUID]?, !ids.isEmpty {
+                newPromo.discountProductIds = try? JSONEncoder().encode(Set(ids))
+            }
             
             modelContext.insert(newPromo)
         }

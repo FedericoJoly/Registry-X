@@ -515,13 +515,7 @@ struct RegistryView: View {
         if currencyCode == mainCode { return amount }
         
         let rate = event.currencies.first(where: { $0.code == currencyCode })?.rate ?? 1.0
-        let converted = amount / rate
-        
-        // Apply round-up if enabled
-        if event.isTotalRoundUp {
-            return Decimal(ceil(NSDecimalNumber(decimal: converted).doubleValue))
-        }
-        return converted
+        return amount / rate
     }
 }
 
@@ -1216,8 +1210,8 @@ struct ProductGroupCard: View {
         totalAmount: 1754.00,
         currencySymbol: "£",
         hasEarlierTransactions: false,
-        onPrevious: { print("Previous") },
-        onNext: { print("Next") }
+        onPrevious: {},
+        onNext: {}
     )
     .padding()
 }
@@ -1230,8 +1224,8 @@ struct ProductGroupCard: View {
         totalAmount: 847.99,
         currencySymbol: "$",
         hasEarlierTransactions: true,
-        onPrevious: { print("Previous") },
-        onNext: { print("Next") }
+        onPrevious: {},
+        onNext: {}
     )
     .padding()
 }
@@ -1244,8 +1238,8 @@ struct ProductGroupCard: View {
         totalAmount: 123456.78,
         currencySymbol: "€",
         hasEarlierTransactions: true,
-        onPrevious: { print("Previous") },
-        onNext: { print("Next") }
+        onPrevious: {},
+        onNext: {}
     )
     .padding()
 }

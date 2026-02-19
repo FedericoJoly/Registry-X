@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct EventInfoHeader: View {
     let event: Event

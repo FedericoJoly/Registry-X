@@ -203,6 +203,13 @@ struct PromoRow: View {
             return "Combo"
         case .nxm:
             return "N x M"
+        case .discount:
+            let typeStr = promo.discountType == .percentage ? "%" : "flat"
+            let targetStr = promo.discountTarget == .total ? "on total" : "on products"
+            let valueStr = promo.discountType == .percentage
+                ? "\(promo.discountValue.formatted(.number.precision(.fractionLength(0))))%"
+                : "\(promo.discountValue.formatted(.number.precision(.fractionLength(2))))"
+            return "Discount · −\(valueStr) (\(typeStr)) \(targetStr)"
         }
     }
     
@@ -367,14 +374,14 @@ struct PromoFormSheet: View {
                    promoData.comboPrice != nil &&
                    promoData.comboPrice! > 0
         } else if promoData.mode == .nxm {
-            // N x M mode validation
             return !promoData.name.isEmpty &&
                    promoData.nxmN >= 2 &&
                    promoData.nxmM >= 1 &&
                    promoData.nxmN > promoData.nxmM &&
                    !promoData.nxmProducts.isEmpty
+        } else if promoData.mode == .discount {
+            return !promoData.name.isEmpty && promoData.discountValue > 0
         } else {
-            // Volume mode validation
             return !promoData.name.isEmpty &&
                    promoData.categoryId != nil &&
                    promoData.maxQuantity >= 2 &&
@@ -429,6 +436,7 @@ struct PromoFormSheet: View {
                         Text("Volume").tag(PromoMode.typeList)
                         Text("Combo").tag(PromoMode.combo)
                         Text("N x M").tag(PromoMode.nxm)
+                        Text("Discount").tag(PromoMode.discount)
                     }
                     .pickerStyle(.segmented)
                     
@@ -445,6 +453,11 @@ struct PromoFormSheet: View {
                             .padding(.top, 8)
                     } else if promoData.mode == .nxm {
                         Text("To create a 2x1 promo type")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                            .padding(.top, 8)
+                    } else if promoData.mode == .discount {
+                        Text("Apply a flat or percentage discount to the total or specific products")
                             .font(.caption)
                             .foregroundColor(.blue)
                             .padding(.top, 8)
@@ -724,8 +737,80 @@ struct PromoFormSheet: View {
                         }
                     }
                 }
+                
+                // MARK: - Discount Mode UI
+                if promoData.mode == .discount {
+                    Section("Discount Value") {
+                        HStack {
+                            TextField("Value", value: $promoData.discountValue, format: .number.precision(.fractionLength(2)))
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(maxWidth: .infinity)
+                                .textFieldStyle(.roundedBorder)
+                            
+                            Text(promoData.discountType == .percentage ? "%" : currencySymbol)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 30)
+                        }
+                    }
+                    
+                    Section("Discount Type") {
+                        Picker("Type", selection: $promoData.discountType) {
+                            Text("Percentage (%)").tag(DiscountType.percentage)
+                            Text("Numeric (flat)").tag(DiscountType.numeric)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    
+                    Section("Apply To") {
+                        Picker("Apply To", selection: $promoData.discountTarget) {
+                            Text("Total").tag(DiscountTarget.total)
+                            Text("Products").tag(DiscountTarget.products)
+                        }
+                        .pickerStyle(.segmented)
+                        
+                        if promoData.discountTarget == .total {
+                            Text("Discount applied to the entire cart total")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Discount applied to selected products only")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    if promoData.discountTarget == .products {
+                        Section("Select Products") {
+                            ForEach(availableProducts.filter { $0.isActive }) { product in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(product.name)
+                                            .font(.body)
+                                        Text(currencySymbol + product.price.formatted(.number.precision(.fractionLength(2))))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: promoData.discountProductIds.contains(product.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(promoData.discountProductIds.contains(product.id) ? .green : .gray)
+                                        .font(.title3)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if promoData.discountProductIds.contains(product.id) {
+                                        promoData.discountProductIds.remove(product.id)
+                                    } else {
+                                        promoData.discountProductIds.insert(product.id)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             }
+
             .sheet(isPresented: $showingStarProductPicker) {
                 NavigationStack {
                     List {
