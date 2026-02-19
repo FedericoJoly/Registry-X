@@ -8,7 +8,7 @@ struct SetupStockView: View {
 
     private var visibleProducts: [Product] {
         event.products
-            .filter { !$0.isDeleted }
+            .filter { !$0.isDeleted && ($0.category == nil || $0.category?.isEnabled == true) }
             .sorted { $0.sortOrder < $1.sortOrder }
     }
 

@@ -1657,9 +1657,18 @@ struct PanelView: View {
     }
     
     func applyOverride() {
-        guard let target = overrideTarget,
-              let value = Decimal(string: overrideInputText.replacingOccurrences(of: ",", with: "")),
-              value > 0 else {
+        guard let target = overrideTarget else { showingOverrideSheet = false; return }
+        // Normalise: treat comma as decimal separator (European locale), strip any dots used as thousands separator
+        let raw = overrideInputText
+        let normalised: String
+        if raw.contains(",") && raw.contains(".") {
+            // e.g. "1.000,50" → remove thousand-sep dot, replace decimal comma with dot
+            normalised = raw.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
+        } else {
+            // e.g. "1,50" → "1.50" or "1.50" → unchanged
+            normalised = raw.replacingOccurrences(of: ",", with: ".")
+        }
+        guard let value = Decimal(string: normalised), value > 0 else {
             showingOverrideSheet = false
             return
         }
@@ -1836,9 +1845,17 @@ struct PanelFooterView: View {
                     VStack(spacing: 8) {
                         ForEach(event.currencies.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }, id: \.id) { currency in
                             Button(action: {
+                                // Capture rates BEFORE changing currentCurrencyCode
+                                let oldRate = event.currencies.first(where: { $0.code == currentCurrencyCode })?.rate ?? 1
+                                let newRate = event.currencies.first(where: { $0.code == currency.code })?.rate ?? 1
                                 currentCurrencyCode = currency.code
-                                overriddenTotal = nil
-                                overriddenCategoryTotals.removeAll()
+                                // Convert overrides to new currency instead of clearing
+                                if oldRate != newRate {
+                                    if let override = overriddenTotal { overriddenTotal = override / oldRate * newRate }
+                                    for key in overriddenCategoryTotals.keys {
+                                        if let val = overriddenCategoryTotals[key] { overriddenCategoryTotals[key] = val / oldRate * newRate }
+                                    }
+                                }
                             }) {
                                 Text(currency.symbol + " " + currency.code)
                                     .font(.system(size: 18, weight: .bold))
@@ -1895,9 +1912,17 @@ struct PanelFooterView: View {
                                 let buttonWidth = (geometry.size.width - totalSpacing) / buttonCount
                                 
                                 Button(action: {
+                                    // Capture rates BEFORE changing currentCurrencyCode
+                                    let oldRate = event.currencies.first(where: { $0.code == currentCurrencyCode })?.rate ?? 1
+                                    let newRate = event.currencies.first(where: { $0.code == currency.code })?.rate ?? 1
                                     currentCurrencyCode = currency.code
-                                    overriddenTotal = nil
-                                    overriddenCategoryTotals.removeAll()
+                                    // Convert overrides to new currency instead of clearing
+                                    if oldRate != newRate {
+                                        if let override = overriddenTotal { overriddenTotal = override / oldRate * newRate }
+                                        for key in overriddenCategoryTotals.keys {
+                                            if let val = overriddenCategoryTotals[key] { overriddenCategoryTotals[key] = val / oldRate * newRate }
+                                        }
+                                    }
                                 }) {
                                     HStack(spacing: 4) {
                                         Text(currency.symbol)
