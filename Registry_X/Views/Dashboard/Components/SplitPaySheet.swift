@@ -218,10 +218,10 @@ struct SplitMethodRow: View {
                     if disabled { entry.amountText = "" }
                 }
 
-            // Currency symbol buttons
+            // Currency symbol buttons — only enabled after a value is entered
             HStack(spacing: 4) {
                 ForEach(availableCurrencies.filter { $0.isEnabled }, id: \.id) { currency in
-                    let enabled = isCurrencyEnabled(currency) && !isRowDisabled
+                    let enabled = isCurrencyEnabled(currency) && !isRowDisabled && hasValue
                     let selected = entry.selectedCurrencyId == currency.id
                     Button(action: {
                         guard enabled else { return }
@@ -230,8 +230,8 @@ struct SplitMethodRow: View {
                         Text(currency.symbol)
                             .font(.system(size: 14, weight: .bold))
                             .frame(width: 30, height: 30)
-                            .background(selected ? Color.blue : (enabled ? Color(UIColor.systemGray5) : Color(UIColor.systemGray5).opacity(0.4)))
-                            .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.4)))
+                            .background(selected ? Color.blue : (enabled ? Color(UIColor.systemGray5) : Color(UIColor.systemGray5).opacity(0.3)))
+                            .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.3)))
                             .cornerRadius(6)
                     }
                     .disabled(!enabled)

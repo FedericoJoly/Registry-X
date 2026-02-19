@@ -69,6 +69,9 @@ struct PanelView: View {
     // Callbacks for when a Stripe/Bizum result completes during a split payment
     @State private var pendingSplitStripeCallback: ((String?, String?) -> Void)? = nil
     @State private var pendingBizumSplitCallback: ((Bool) -> Void)? = nil
+    // Amount / currency to charge via Stripe or Bizum for the split fraction (not the full cart total)
+    @State private var splitChargeAmount: Decimal = 0
+    @State private var splitChargeCurrency: String = ""
     
     init(event: Event, onQuit: (() -> Void)? = nil) {
         self.event = event
@@ -867,10 +870,13 @@ struct PanelView: View {
         }
         .sheet(isPresented: $showingStripeCardPayment) {
             if let backendURL = event.stripeBackendURL {
-                let txnRef = generateTransactionRef()
+                let txnRef = pendingTxnRef ?? generateTransactionRef()
+                // During split: charge only the card fraction's amount/currency
+                let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
+                let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
                 StripeTapToPayView(
-                    amount: derivedTotal,
-                    currency: currentCurrencyCode,
+                    amount: chargeAmount,
+                    currency: chargeCurrency,
                     description: paymentDescription(txnRef: txnRef),
                     backendURL: backendURL,
                     locationId: event.stripeLocationId ?? "",
@@ -883,6 +889,8 @@ struct PanelView: View {
                     },
                     onCancel: {
                         showingStripeCardPayment = false
+                        splitChargeAmount = 0
+                        splitChargeCurrency = ""
                     }
                 )
             }
@@ -896,34 +904,50 @@ struct PanelView: View {
         }
         .sheet(isPresented: $showingStripeQRPayment) {
             if let backendURL = event.stripeBackendURL {
-                let txnRef = generateTransactionRef()
+                let txnRef = pendingTxnRef ?? generateTransactionRef()
+                let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
+                let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
                 StripeQRPaymentView(
-                    amount: derivedTotal,
-                    currency: currentCurrencyCode,
+                    amount: chargeAmount,
+                    currency: chargeCurrency,
                     description: paymentDescription(txnRef: txnRef),
                     companyName: effectiveCompanyName,
                     lineItems: stripeLineItems().isEmpty ? nil : stripeLineItems(),
                     backendURL: backendURL,
                     onSuccess: { sessionId in
-                        processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: txnRef)
+                        if let splitCB = pendingSplitStripeCallback {
+                            pendingSplitStripeCallback = nil
+                            splitChargeAmount = 0
+                            splitChargeCurrency = ""
+                            showingStripeQRPayment = false
+                            splitCB(nil, sessionId)
+                        } else {
+                            processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: txnRef)
+                        }
                     },
                     onCancel: {
                         showingStripeQRPayment = false
+                        splitChargeAmount = 0
+                        splitChargeCurrency = ""
                     }
                 )
             }
         }
         .sheet(isPresented: $showingBizumPayment) {
             if let phoneNumber = event.bizumPhoneNumber {
-                let symbol = event.currencies.first(where: { $0.code == currentCurrencyCode })?.symbol ?? currentCurrencyCode
+                // During split: charge only the Bizum fraction
+                let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
+                let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
+                let symbol = event.currencies.first(where: { $0.code == chargeCurrency })?.symbol ?? chargeCurrency
                 BizumPaymentView(
-                    amount: derivedTotal,
+                    amount: chargeAmount,
                     currency: symbol,
                     phoneNumber: phoneNumber,
                     onComplete: {
                         showingBizumPayment = false
+                        splitChargeAmount = 0
+                        splitChargeCurrency = ""
                         if let splitCallback = pendingBizumSplitCallback {
-                            // Split flow: notify caller of success
                             pendingBizumSplitCallback = nil
                             splitCallback(true)
                         } else {
@@ -932,6 +956,8 @@ struct PanelView: View {
                     },
                     onCancel: {
                         showingBizumPayment = false
+                        splitChargeAmount = 0
+                        splitChargeCurrency = ""
                         if let splitCallback = pendingBizumSplitCallback {
                             pendingBizumSplitCallback = nil
                             splitCallback(false)
@@ -1037,7 +1063,7 @@ struct PanelView: View {
                 availableMethods: availablePaymentMethods,
                 availableCurrencies: enabledCurrencies,
                 mainCurrencyCode: mainCode,
-                derivedTotal: derivedTotal,
+                derivedTotal: rate > 0 ? derivedTotal / rate : derivedTotal,
                 onCancel: {
                     showingSplitPaySheet = false
                 },
@@ -1419,7 +1445,7 @@ struct PanelView: View {
         // Determine processing path for complex method (m1)
         if isCard1 {
             // Tap-to-pay via Stripe Card
-            guard let backendURL = event.stripeBackendURL else {
+            guard event.stripeBackendURL != nil else {
                 // No Stripe backend — fall back to manual for both
                 registerSplitTransaction(method1: m1, method2: m2)
                 return
@@ -1427,14 +1453,18 @@ struct PanelView: View {
             selectedMethodOption = m1
             selectedPaymentMethod = m1.toPaymentMethod()
             pendingTxnRef = txnRef
+            // Charge only the card fraction, converted to its charge currency
+            let chargeRate1 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode1 })?.rate ?? 1
+            splitChargeAmount = pendingSplitAmount1 * chargeRate1
+            splitChargeCurrency = pendingSplitCurrencyCode1.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode1
             showingStripeCardPayment = true
-            // Result handled in .onChange(of: stripeCardResult) → calls processCheckoutWithStripe
-            // For split we need a different callback — store a flag for post-stripe handling
-            // NOTE: Stripe result lands in processCheckoutWithStripe; for split we repurpose that
-            // by checking isSplitPending. Marking pending split for Stripe callback:
             pendingSplitStripeCallback = { [self] intentId, sessionId in
                 // Bizum second if applicable
                 if isBizum2 {
+                    // Set Bizum charge amount for method2
+                    let chargeRate2 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode2 })?.rate ?? 1
+                    splitChargeAmount = pendingSplitAmount2 * chargeRate2
+                    splitChargeCurrency = pendingSplitCurrencyCode2.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode2
                     showingBizumPayment = true
                     pendingBizumSplitCallback = { [self] success in
                         let finalMethod2 = success ? m2 : PaymentMethodOption(
@@ -1449,16 +1479,22 @@ struct PanelView: View {
                 }
             }
         } else if isQR1 {
-            guard let backendURL = event.stripeBackendURL else {
+            guard event.stripeBackendURL != nil else {
                 registerSplitTransaction(method1: m1, method2: m2)
                 return
             }
             selectedMethodOption = m1
             selectedPaymentMethod = m1.toPaymentMethod()
             pendingTxnRef = txnRef
+            let chargeRate1 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode1 })?.rate ?? 1
+            splitChargeAmount = pendingSplitAmount1 * chargeRate1
+            splitChargeCurrency = pendingSplitCurrencyCode1.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode1
             showingStripeQRPayment = true
             pendingSplitStripeCallback = { [self] intentId, sessionId in
                 if isBizum2 {
+                    let chargeRate2 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode2 })?.rate ?? 1
+                    splitChargeAmount = pendingSplitAmount2 * chargeRate2
+                    splitChargeCurrency = pendingSplitCurrencyCode2.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode2
                     showingBizumPayment = true
                     pendingBizumSplitCallback = { [self] success in
                         let finalMethod2 = success ? m2 : PaymentMethodOption(
@@ -1473,7 +1509,10 @@ struct PanelView: View {
                 }
             }
         } else if isBizum1 {
-            // Bizum first (simpler than Stripe but complex enough to show UI)
+            // Bizum first — charge only method1 fraction
+            let chargeRate1 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode1 })?.rate ?? 1
+            splitChargeAmount = pendingSplitAmount1 * chargeRate1
+            splitChargeCurrency = pendingSplitCurrencyCode1.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode1
             showingBizumPayment = true
             pendingBizumSplitCallback = { [self] success in
                 if success {
