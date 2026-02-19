@@ -4,8 +4,8 @@ import SwiftUI
 struct SplitMethodEntry: Identifiable {
     let id: UUID             // PaymentMethodOption.id
     let method: PaymentMethodOption
-    var amountText: String = ""     // entered in main currency
-    var selectedCurrencyId: UUID?   // which currency the user picked for this method
+    var amountText: String = ""       // displayed & entered in selectedCurrency (or main if none)
+    var selectedCurrencyId: UUID?     // which currency the user selected for this method
 }
 
 // MARK: - SplitPaySheet
@@ -15,7 +15,7 @@ struct SplitPaySheet: View {
     let mainCurrencyCode: String
     let derivedTotal: Decimal             // full cart total in main currency
     let onCancel: () -> Void
-    // Called when OK tapped: method1, amount1 (main), currCode1, method2, amount2 (main), currCode2
+    // Called when OK tapped: method1, amount1InMain, currCode1, method2, amount2InMain, currCode2
     let onConfirm: (PaymentMethodOption, Decimal, String, PaymentMethodOption, Decimal, String) -> Void
 
     @State private var entries: [SplitMethodEntry] = []
@@ -28,28 +28,43 @@ struct SplitPaySheet: View {
         availableCurrencies.first(where: { $0.code == code })?.symbol ?? code
     }
 
+    /// Exchange rate: 1 main → `rate` units of `code`.
+    /// Convention from PanelView: currency.rate = how many of this currency per 1 main.
     private func rate(for code: String) -> Decimal {
-        guard let mainCur = availableCurrencies.first(where: { $0.isMain }) else { return 1 }
-        if code == mainCur.code { return 1 }
-        let foreign = availableCurrencies.first(where: { $0.code == code })?.rate ?? 1
-        let mainRate = mainCur.rate   // usually 1.0
-        // rate stored as "how many foreign per 1 main" or "1 foreign = rate main"?
-        // Existing convention: rate = how many main-currency units per 1 unit of this currency
-        // So: foreignAmount * rate = mainAmount  →  mainAmount / rate = foreignAmount
-        return foreign
+        if code == mainCurrencyCode { return 1 }
+        return availableCurrencies.first(where: { $0.code == code })?.rate ?? 1
+    }
+
+    /// Convert an amount from one currency to another via main as the pivot.
+    private func convert(_ amount: Decimal, from fromCode: String, to toCode: String) -> Decimal {
+        guard fromCode != toCode else { return amount }
+        let rateFrom = rate(for: fromCode)   // foreign per 1 main
+        let rateTo   = rate(for: toCode)
+        guard rateFrom > 0 else { return amount }
+        let inMain = rateFrom > 0 ? amount / rateFrom : amount   // back to main
+        return inMain * rateTo
+    }
+
+    /// Amount in main currency for a given entry.
+    private func amountInMain(_ entry: SplitMethodEntry) -> Decimal {
+        guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
+              val > 0 else { return 0 }
+        let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
+        let r = rate(for: code)
+        return r > 0 ? val / r : val
     }
 
     // Sum of entered amounts converted to main currency
     private var enteredTotal: Decimal {
-        entries.reduce(Decimal(0)) { acc, entry in
-            guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
-                  val > 0 else { return acc }
-            return acc + val
-        }
+        entries.reduce(Decimal(0)) { acc, entry in acc + amountInMain(entry) }
     }
 
     private var remaining: Decimal { derivedTotal - enteredTotal }
-    private var isBalanced: Bool { enteredTotal == derivedTotal }
+    private var isBalanced: Bool {
+        // Allow tiny floating-point epsilon
+        let diff = enteredTotal - derivedTotal
+        return diff >= -0.005 && diff <= 0.005
+    }
 
     // Methods that have Stripe card (tap-to-pay)
     private func isCard(_ m: PaymentMethodOption) -> Bool {
@@ -61,19 +76,16 @@ struct SplitPaySheet: View {
 
     // Any card method has a value entered?
     private var cardHasValue: Bool {
-        entries.first(where: { isCard($0.method) && !($0.amountText.isEmpty) })?.amountText.isEmpty == false
+        entries.contains { isCard($0.method) && (Decimal(string: $0.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0 }
     }
     // Any QR method has a value entered?
     private var qrHasValue: Bool {
-        entries.first(where: { isQR($0.method) && !($0.amountText.isEmpty) })?.amountText.isEmpty == false
+        entries.contains { isQR($0.method) && (Decimal(string: $0.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0 }
     }
 
-    // Methods with an entered value (for OK validation and passing to confirm)
+    // Methods with an entered value
     private var filledEntries: [SplitMethodEntry] {
-        entries.filter {
-            let v = Decimal(string: $0.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
-            return v > 0
-        }
+        entries.filter { amountInMain($0) > 0 }
     }
 
     // Currency enabled for a method
@@ -123,6 +135,7 @@ struct SplitPaySheet: View {
                                 mainCurrencyCode: mainCurrencyCode,
                                 isDisabledDueToMutualExclusion: mutuallyExcluded(entry),
                                 isCurrencyEnabled: { isCurrencyEnabled($0, for: entry.method) },
+                                convert: convert,
                                 focusedId: $focusedMethodId
                             )
                             Divider().padding(.leading, 20)
@@ -145,8 +158,9 @@ struct SplitPaySheet: View {
                         guard filledEntries.count == 2 else { return }
                         let e1 = filledEntries[0]
                         let e2 = filledEntries[1]
-                        let a1 = Decimal(string: e1.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
-                        let a2 = Decimal(string: e2.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
+                        // Pass main-currency amounts
+                        let a1 = amountInMain(e1)
+                        let a2 = amountInMain(e2)
                         let c1 = availableCurrencies.first(where: { $0.id == e1.selectedCurrencyId })?.code ?? mainCurrencyCode
                         let c2 = availableCurrencies.first(where: { $0.id == e2.selectedCurrencyId })?.code ?? mainCurrencyCode
                         onConfirm(e1.method, a1, c1, e2.method, a2, c2)
@@ -176,12 +190,17 @@ struct SplitMethodRow: View {
     let mainCurrencyCode: String
     let isDisabledDueToMutualExclusion: Bool
     let isCurrencyEnabled: (Currency) -> Bool
+    /// Convert amount between currency codes
+    let convert: (Decimal, String, String) -> Decimal
     var focusedId: FocusState<UUID?>.Binding
 
     private var isRowDisabled: Bool { isDisabledDueToMutualExclusion }
     private var hasValue: Bool {
-        let v = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0
-        return v > 0
+        (Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0
+    }
+
+    private func currentCurrencyCode() -> String {
+        availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
     }
 
     var body: some View {
@@ -215,7 +234,12 @@ struct SplitMethodRow: View {
                 .opacity(isRowDisabled ? 0.4 : 1)
                 // Auto-clear if row becomes disabled
                 .onChange(of: isRowDisabled) { _, disabled in
-                    if disabled { entry.amountText = "" }
+                    if disabled { entry.amountText = ""; entry.selectedCurrencyId = nil }
+                }
+                // Auto-clear selectedCurrencyId when amount is cleared
+                .onChange(of: entry.amountText) { _, newVal in
+                    let v = Decimal(string: newVal.replacingOccurrences(of: ",", with: ".")) ?? 0
+                    if v == 0 { entry.selectedCurrencyId = nil }
                 }
 
             // Currency symbol buttons — only enabled after a value is entered
@@ -225,7 +249,18 @@ struct SplitMethodRow: View {
                     let selected = entry.selectedCurrencyId == currency.id
                     Button(action: {
                         guard enabled else { return }
-                        entry.selectedCurrencyId = selected ? nil : currency.id
+                        if selected {
+                            entry.selectedCurrencyId = nil
+                        } else {
+                            // Convert existing amount from old currency to new currency
+                            let oldCode = currentCurrencyCode()
+                            let newCode = currency.code
+                            if hasValue, let oldVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) {
+                                let newVal = convert(oldVal, oldCode, newCode)
+                                entry.amountText = newVal.formatted(.number.precision(.fractionLength(2)))
+                            }
+                            entry.selectedCurrencyId = currency.id
+                        }
                     }) {
                         Text(currency.symbol)
                             .font(.system(size: 14, weight: .bold))
@@ -235,17 +270,6 @@ struct SplitMethodRow: View {
                             .cornerRadius(6)
                     }
                     .disabled(!enabled)
-                }
-            }
-            // Validate: if entering a value, a currency must be selected
-            .onChange(of: entry.amountText) { _, newVal in
-                let v = Decimal(string: newVal.replacingOccurrences(of: ",", with: ".")) ?? 0
-                if v == 0 { entry.selectedCurrencyId = nil }
-                // Auto-select main currency if only one enabled currency
-                else if entry.selectedCurrencyId == nil {
-                    if let mainCur = availableCurrencies.first(where: { $0.code == mainCurrencyCode && isCurrencyEnabled($0) }) {
-                        entry.selectedCurrencyId = mainCur.id
-                    }
                 }
             }
         }

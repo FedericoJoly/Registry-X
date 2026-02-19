@@ -661,6 +661,16 @@ struct TransactionCard: View {
         }
         return .secondary
     }
+
+    /// Look up color for the split second method icon
+    private func splitMethodIconColor(icon: String) -> Color {
+        guard let data = event.paymentMethodsData,
+              let methods = try? JSONDecoder().decode([PaymentMethodOption].self, from: data),
+              let match = methods.first(where: { $0.icon == icon }) else {
+            return .secondary
+        }
+        return Color(hex: match.colorHex)
+    }
     
     private var totalSavings: Decimal {
         // Calculate what customer would pay at natural prices
@@ -688,47 +698,38 @@ struct TransactionCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // HEADER ROW: Time + Icon | Amount | Delete
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    // First line: time + primary method icon
-                    HStack(spacing: 8) {
-                        Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
-                            .font(.headline)
-                        
-                        Image(systemName: paymentIcon)
-                            .foregroundStyle(paymentIconColor)
-                        
-                        // For split: show method1 amount inline
-                        if transaction.isSplit, let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1 {
-                            Text(currencySymbol(for: c1) + a1.formatted(.number.precision(.fractionLength(2))))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    
-                    // Second line (split only): method2 icon + amount, indented to align with icon
-                    if transaction.isSplit,
-                       let icon2 = transaction.splitMethodIcon,
-                       let a2 = transaction.splitAmount2,
-                       let c2 = transaction.splitCurrencyCode2 {
-                        HStack(spacing: 8) {
-                            // Spacer to align with icon column (time text ~38pt)
-                            Color.clear.frame(width: 38, height: 1)
-                            Image(systemName: icon2)
-                                .foregroundStyle(.secondary)
-                            Text(currencySymbol(for: c2) + a2.formatted(.number.precision(.fractionLength(2))))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+            // HEADER ROW: Time + Icon(s) | Amount | Delete
+            // For split TXs both methods appear on the same line: [time] [icon1] [a1] [icon2] [a2] [total] [trash]
+            HStack(alignment: .center) {
+                Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
+                    .font(.headline)
+
+                if transaction.isSplit,
+                   let icon2 = transaction.splitMethodIcon,
+                   let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1,
+                   let a2 = transaction.splitAmount2, let c2 = transaction.splitCurrencyCode2 {
+                    // Method 1
+                    Image(systemName: paymentIcon)
+                        .foregroundStyle(paymentIconColor)
+                    Text(currencySymbol(for: c1) + a1.formatted(.number.precision(.fractionLength(2))))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    // Method 2
+                    Image(systemName: icon2)
+                        .foregroundStyle(splitMethodIconColor(icon: icon2))
+                    Text(currencySymbol(for: c2) + a2.formatted(.number.precision(.fractionLength(2))))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: paymentIcon)
+                        .foregroundStyle(paymentIconColor)
                 }
-                
+
                 Spacer()
-                
+
                 Text(currencySymbol(for: transaction.currencyCode) + transaction.totalAmount.formatted(.number.precision(.fractionLength(2))))
                     .font(.headline)
-                
+
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .foregroundStyle(.red)
