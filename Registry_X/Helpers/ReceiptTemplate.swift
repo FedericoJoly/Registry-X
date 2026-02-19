@@ -15,7 +15,7 @@ struct ReceiptTemplate {
         dateFormatter.timeStyle = .short
         let formattedDate = dateFormatter.string(from: transaction.timestamp)
         
-        // Format amount
+        // Format amount (main currency total)
         let currencySymbol = event.currencies.first(where: { $0.code == transaction.currencyCode })?.symbol ?? transaction.currencyCode
         let formattedAmount = "\(currencySymbol)\(transaction.totalAmount.formatted(.number.precision(.fractionLength(2))))"
         
@@ -38,22 +38,74 @@ struct ReceiptTemplate {
             """
         }
         
-        // Payment method display
-        let paymentMethodDisplay: String
-        switch transaction.paymentMethod {
-        case .cash:
-            paymentMethodDisplay = "Cash"
-        case .transfer:
-            paymentMethodDisplay = "Bank Transfer"
-        case .card:
-            paymentMethodDisplay = "Card"
-        case .other:
-            // Check if it's Bizum based on icon
-            if transaction.paymentMethodIcon == "phone.fill" {
-                paymentMethodDisplay = "Bizum"
+        // Helper: format amount in a given currency code using event XR rates
+        func format(mainAmount: Decimal, chargeCode: String) -> String {
+            let sym = event.currencies.first(where: { $0.code == chargeCode })?.symbol ?? chargeCode
+            let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? transaction.currencyCode
+            let displayAmount: Decimal
+            if chargeCode == mainCode {
+                displayAmount = mainAmount
             } else {
-                paymentMethodDisplay = "Other"
+                let rate = event.currencies.first(where: { $0.code == chargeCode })?.rate ?? 1
+                displayAmount = mainAmount * rate
             }
+            return "\(sym)\(displayAmount.formatted(.number.precision(.fractionLength(2))))"
+        }
+        
+        // Build payment method section (split-aware)
+        let paymentSectionHTML: String
+        if transaction.isSplit,
+           let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1,
+           let splitMethod = transaction.splitMethod, let a2 = transaction.splitAmount2, let c2 = transaction.splitCurrencyCode2 {
+            
+            let method1Name: String
+            switch transaction.paymentMethod {
+            case .cash: method1Name = "Cash"
+            case .transfer: method1Name = "Bank Transfer"
+            case .card: method1Name = "Card"
+            case .other:
+                if transaction.paymentMethodIcon == "phone.fill" { method1Name = "Bizum" }
+                else { method1Name = "Other" }
+            }
+            let method2Name: String
+            switch PaymentMethod(rawValue: splitMethod) ?? .cash {
+            case .cash: method2Name = "Cash"
+            case .transfer: method2Name = "Bank Transfer"
+            case .card: method2Name = "Card"
+            case .other: method2Name = "Bizum"
+            }
+            
+            paymentSectionHTML = """
+            <div style="padding: 15px; background-color: #f0f7ff; border-left: 4px solid #667eea; border-radius: 4px; margin-bottom: 20px;">
+                <p style="margin: 0 0 10px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Split Payment</p>
+                <table style="width: 100%;">
+                    <tr>
+                        <td style="font-size: 15px; font-weight: 600; color: #333; padding-bottom: 6px;">\(method1Name)</td>
+                        <td style="font-size: 15px; font-weight: 600; color: #667eea; text-align: right; padding-bottom: 6px;">\(format(mainAmount: a1, chargeCode: c1))</td>
+                    </tr>
+                    <tr>
+                        <td style="font-size: 15px; font-weight: 600; color: #333;">\(method2Name)</td>
+                        <td style="font-size: 15px; font-weight: 600; color: #667eea; text-align: right;">\(format(mainAmount: a2, chargeCode: c2))</td>
+                    </tr>
+                </table>
+            </div>
+            """
+        } else {
+            let paymentMethodDisplay: String
+            switch transaction.paymentMethod {
+            case .cash: paymentMethodDisplay = "Cash"
+            case .transfer: paymentMethodDisplay = "Bank Transfer"
+            case .card: paymentMethodDisplay = "Card"
+            case .other:
+                if transaction.paymentMethodIcon == "phone.fill" { paymentMethodDisplay = "Bizum" }
+                else { paymentMethodDisplay = "Other" }
+            }
+            paymentSectionHTML = """
+            <div style="padding: 15px; background-color: #f0f7ff; border-left: 4px solid #667eea; border-radius: 4px; margin-bottom: 20px;">
+                <p style="margin: 0 0 5px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Payment Method</p>
+                <p style="margin: 0; font-size: 16px; font-weight: 600; color: #333;">\(paymentMethodDisplay)</p>
+            </div>
+            """
         }
         
         // Build HTML
@@ -106,11 +158,8 @@ struct ReceiptTemplate {
                         </table>
                     </div>
                     
-                    <!-- Payment Details -->
-                    <div style="padding: 15px; background-color: #f0f7ff; border-left: 4px solid #667eea; border-radius: 4px; margin-bottom: 20px;">
-                        <p style="margin: 0 0 5px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Payment Method</p>
-                        <p style="margin: 0; font-size: 16px; font-weight: 600; color: #333;">\(paymentMethodDisplay)</p>
-                    </div>
+                    <!-- Payment Details (split-aware) -->
+                    \(paymentSectionHTML)
                     
                     \(transaction.transactionRef.map { ref in
                         """
