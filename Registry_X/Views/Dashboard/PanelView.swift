@@ -57,6 +57,19 @@ struct PanelView: View {
     @State private var overrideTarget: OverrideTarget? = nil
     @State private var overrideInputText = ""
     
+    // Split Payment State
+    @State private var showingSplitPaySheet = false
+    @State private var showingSplitConfirmSheet = false
+    @State private var pendingSplitMethod1: PaymentMethodOption? = nil
+    @State private var pendingSplitMethod2: PaymentMethodOption? = nil
+    @State private var pendingSplitAmount1: Decimal = 0   // in main currency
+    @State private var pendingSplitAmount2: Decimal = 0
+    @State private var pendingSplitCurrencyCode1: String = ""
+    @State private var pendingSplitCurrencyCode2: String = ""
+    // Callbacks for when a Stripe/Bizum result completes during a split payment
+    @State private var pendingSplitStripeCallback: ((String?, String?) -> Void)? = nil
+    @State private var pendingBizumSplitCallback: ((Bool) -> Void)? = nil
+    
     init(event: Event, onQuit: (() -> Void)? = nil) {
         self.event = event
         self.onQuit = onQuit
@@ -748,6 +761,9 @@ struct PanelView: View {
                         showingClearConfirmation = true
                     }
                 },
+                onSplit: {
+                    showingSplitPaySheet = true
+                },
                 onCheckout: {
                     showingPaymentMethodSheet = true
                 }
@@ -905,11 +921,21 @@ struct PanelView: View {
                     currency: symbol,
                     phoneNumber: phoneNumber,
                     onComplete: {
-                        processCheckout()
                         showingBizumPayment = false
+                        if let splitCallback = pendingBizumSplitCallback {
+                            // Split flow: notify caller of success
+                            pendingBizumSplitCallback = nil
+                            splitCallback(true)
+                        } else {
+                            processCheckout()
+                        }
                     },
                     onCancel: {
                         showingBizumPayment = false
+                        if let splitCallback = pendingBizumSplitCallback {
+                            pendingBizumSplitCallback = nil
+                            splitCallback(false)
+                        }
                     }
                 )
             }
@@ -921,9 +947,16 @@ struct PanelView: View {
             Button("No") {
                 // Process checkout without email
                 if let intentId = pendingPaymentIntentId, let txnRef = pendingTxnRef {
-                    processCheckoutWithStripe(paymentIntentId: intentId, sessionId: nil, txnRef: txnRef)
-                    pendingPaymentIntentId = nil
-                    pendingTxnRef = nil
+                    if let splitCB = pendingSplitStripeCallback {
+                        pendingSplitStripeCallback = nil
+                        pendingPaymentIntentId = nil
+                        pendingTxnRef = nil
+                        splitCB(intentId, nil)
+                    } else {
+                        processCheckoutWithStripe(paymentIntentId: intentId, sessionId: nil, txnRef: txnRef)
+                        pendingPaymentIntentId = nil
+                        pendingTxnRef = nil
+                    }
                 }
             }
         } message: {
@@ -939,16 +972,31 @@ struct PanelView: View {
                     onComplete: { customerEmail in
                         showingReceiptEmailSheet = false
                         pendingReceiptEmail = customerEmail
-                        processCheckoutWithStripe(paymentIntentId: intentId, sessionId: nil, txnRef: txnRef)
-                        pendingPaymentIntentId = nil
-                        pendingTxnRef = nil
-                        pendingReceiptEmail = nil
+                        if let splitCB = pendingSplitStripeCallback {
+                            pendingSplitStripeCallback = nil
+                            pendingPaymentIntentId = nil
+                            pendingTxnRef = nil
+                            pendingReceiptEmail = nil
+                            splitCB(intentId, nil)
+                        } else {
+                            processCheckoutWithStripe(paymentIntentId: intentId, sessionId: nil, txnRef: txnRef)
+                            pendingPaymentIntentId = nil
+                            pendingTxnRef = nil
+                            pendingReceiptEmail = nil
+                        }
                     },
                     onCancel: {
                         showingReceiptEmailSheet = false
-                        processCheckoutWithStripe(paymentIntentId: intentId, sessionId: nil, txnRef: txnRef)
-                        pendingPaymentIntentId = nil
-                        pendingTxnRef = nil
+                        if let splitCB = pendingSplitStripeCallback {
+                            pendingSplitStripeCallback = nil
+                            pendingPaymentIntentId = nil
+                            pendingTxnRef = nil
+                            splitCB(intentId, nil)
+                        } else {
+                            processCheckoutWithStripe(paymentIntentId: intentId, sessionId: nil, txnRef: txnRef)
+                            pendingPaymentIntentId = nil
+                            pendingTxnRef = nil
+                        }
                     }
                 )
             }
@@ -980,6 +1028,70 @@ struct PanelView: View {
             )
             .presentationDetents([.medium])
             .presentationDragIndicator(.hidden)
+        }
+        // Split Pay Sheet (step 1 — method & amount selection)
+        .sheet(isPresented: $showingSplitPaySheet) {
+            let enabledCurrencies = event.currencies.filter { $0.isEnabled }
+            let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+            SplitPaySheet(
+                availableMethods: availablePaymentMethods,
+                availableCurrencies: enabledCurrencies,
+                mainCurrencyCode: mainCode,
+                derivedTotal: derivedTotal,
+                onCancel: {
+                    showingSplitPaySheet = false
+                },
+                onConfirm: { m1, a1, c1, m2, a2, c2 in
+                    // Determine which method is more complex (order: Card > QR > Bizum > others)
+                    let priority: (PaymentMethodOption) -> Int = { m in
+                        if m.icon.contains("creditcard") && m.enabledProviders.contains("stripe") { return 3 }
+                        if m.icon.contains("qrcode") && m.enabledProviders.contains("stripe") { return 2 }
+                        if m.icon.contains("phone") { return 1 }
+                        return 0
+                    }
+                    // Sort so most complex is first
+                    let ordered: [(PaymentMethodOption, Decimal, String)]
+                    if priority(m1) >= priority(m2) {
+                        ordered = [(m1, a1, c1), (m2, a2, c2)]
+                    } else {
+                        ordered = [(m2, a2, c2), (m1, a1, c1)]
+                    }
+                    pendingSplitMethod1 = ordered[0].0
+                    pendingSplitAmount1 = ordered[0].1
+                    pendingSplitCurrencyCode1 = ordered[0].2
+                    pendingSplitMethod2 = ordered[1].0
+                    pendingSplitAmount2 = ordered[1].1
+                    pendingSplitCurrencyCode2 = ordered[1].2
+                    showingSplitPaySheet = false
+                    showingSplitConfirmSheet = true
+                }
+            )
+        }
+        // Split Confirm Sheet (step 2 — review & pay)
+        .sheet(isPresented: $showingSplitConfirmSheet) {
+            if let m1 = pendingSplitMethod1, let m2 = pendingSplitMethod2 {
+                let enabledCurrencies = event.currencies.filter { $0.isEnabled }
+                let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+                SplitConfirmSheet(
+                    method1: m1,
+                    amount1InMain: pendingSplitAmount1,
+                    currencyCode1: pendingSplitCurrencyCode1,
+                    method2: m2,
+                    amount2InMain: pendingSplitAmount2,
+                    currencyCode2: pendingSplitCurrencyCode2,
+                    availableCurrencies: enabledCurrencies,
+                    mainCurrencyCode: mainCode,
+                    totalAmount: derivedTotal,
+                    onCancel: {
+                        showingSplitConfirmSheet = false
+                        showingSplitPaySheet = true
+                    },
+                    onPay: {
+                        showingSplitConfirmSheet = false
+                        processSplitCheckout()
+                    }
+                )
+            }
         }
     }
     
@@ -1228,6 +1340,155 @@ struct PanelView: View {
         }
     }
     
+    /// Processes a split payment. Method 1 is the more complex one (Card > QR > Bizum > Cash).
+    /// Triggers hardware payment for Stripe methods. On success registers one split Transaction.
+    func processSplitCheckout() {
+        guard !event.isLocked else { return }
+        guard cart.values.contains(where: { $0 > 0 }) else { return }
+        guard let m1 = pendingSplitMethod1, let m2 = pendingSplitMethod2 else { return }
+
+        let isCard1  = m1.icon.contains("creditcard") && m1.enabledProviders.contains("stripe")
+        let isQR1    = m1.icon.contains("qrcode")    && m1.enabledProviders.contains("stripe")
+        let isBizum1 = m1.icon.contains("phone")
+
+        let isBizum2 = m2.icon.contains("phone")
+
+        let txnRef = generateTransactionRef()
+
+        // Helper: register the split transaction after all payment methods succeed
+        func registerSplitTransaction(method1: PaymentMethodOption, method2: PaymentMethodOption,
+                                      stripeIntentId: String? = nil, stripeSessionId: String? = nil) {
+            let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+            let transaction = Transaction(
+                totalAmount: derivedTotal,
+                currencyCode: mainCode,
+                note: note.isEmpty ? nil : note,
+                paymentMethod: method1.toPaymentMethod(),
+                paymentMethodIcon: method1.icon,
+                transactionRef: txnRef,
+                stripePaymentIntentId: stripeIntentId,
+                stripeSessionId: stripeSessionId,
+                paymentStatus: (stripeIntentId != nil || stripeSessionId != nil) ? "succeeded" : "manual",
+                isSplit: true,
+                splitMethod: method2.toPaymentMethod().rawValue,
+                splitMethodIcon: method2.icon,
+                splitAmount1: pendingSplitAmount1,
+                splitAmount2: pendingSplitAmount2,
+                splitCurrencyCode1: pendingSplitCurrencyCode1,
+                splitCurrencyCode2: pendingSplitCurrencyCode2
+            )
+
+            for (id, qty) in cart {
+                if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                    let basePrice = proratedUnitPrice(for: id, quantity: qty)
+                    let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                    let line = LineItem(productName: product.name, quantity: qty,
+                                       unitPrice: finalPrice, subgroup: product.subgroup)
+                    line.product = product
+                    transaction.lineItems.append(line)
+                }
+            }
+            transaction.event = event
+            event.transactions.append(transaction)
+
+            if event.isStockControlEnabled {
+                for lineItem in transaction.lineItems {
+                    if let product = lineItem.product, product.stockQty != nil {
+                        product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
+                    }
+                }
+            }
+
+            cart.removeAll()
+            note = ""
+            activeDiscountPromoIds.removeAll()
+            overriddenTotal = nil
+            overriddenCategoryTotals.removeAll()
+            pendingSplitMethod1 = nil
+            pendingSplitMethod2 = nil
+
+            withAnimation { showingTransactionNotification = true }
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run {
+                    withAnimation { showingTransactionNotification = false }
+                }
+            }
+        }
+
+        // Determine processing path for complex method (m1)
+        if isCard1 {
+            // Tap-to-pay via Stripe Card
+            guard let backendURL = event.stripeBackendURL else {
+                // No Stripe backend — fall back to manual for both
+                registerSplitTransaction(method1: m1, method2: m2)
+                return
+            }
+            selectedMethodOption = m1
+            selectedPaymentMethod = m1.toPaymentMethod()
+            pendingTxnRef = txnRef
+            showingStripeCardPayment = true
+            // Result handled in .onChange(of: stripeCardResult) → calls processCheckoutWithStripe
+            // For split we need a different callback — store a flag for post-stripe handling
+            // NOTE: Stripe result lands in processCheckoutWithStripe; for split we repurpose that
+            // by checking isSplitPending. Marking pending split for Stripe callback:
+            pendingSplitStripeCallback = { [self] intentId, sessionId in
+                // Bizum second if applicable
+                if isBizum2 {
+                    showingBizumPayment = true
+                    pendingBizumSplitCallback = { [self] success in
+                        let finalMethod2 = success ? m2 : PaymentMethodOption(
+                            id: m2.id, name: "Cash", icon: "banknote",
+                            color: .green, isEnabled: true)
+                        registerSplitTransaction(method1: m1, method2: finalMethod2,
+                                                 stripeIntentId: intentId, stripeSessionId: sessionId)
+                    }
+                } else {
+                    registerSplitTransaction(method1: m1, method2: m2,
+                                             stripeIntentId: intentId, stripeSessionId: sessionId)
+                }
+            }
+        } else if isQR1 {
+            guard let backendURL = event.stripeBackendURL else {
+                registerSplitTransaction(method1: m1, method2: m2)
+                return
+            }
+            selectedMethodOption = m1
+            selectedPaymentMethod = m1.toPaymentMethod()
+            pendingTxnRef = txnRef
+            showingStripeQRPayment = true
+            pendingSplitStripeCallback = { [self] intentId, sessionId in
+                if isBizum2 {
+                    showingBizumPayment = true
+                    pendingBizumSplitCallback = { [self] success in
+                        let finalMethod2 = success ? m2 : PaymentMethodOption(
+                            id: m2.id, name: "Cash", icon: "banknote",
+                            color: .green, isEnabled: true)
+                        registerSplitTransaction(method1: m1, method2: finalMethod2,
+                                                 stripeIntentId: intentId, stripeSessionId: sessionId)
+                    }
+                } else {
+                    registerSplitTransaction(method1: m1, method2: m2,
+                                             stripeIntentId: intentId, stripeSessionId: sessionId)
+                }
+            }
+        } else if isBizum1 {
+            // Bizum first (simpler than Stripe but complex enough to show UI)
+            showingBizumPayment = true
+            pendingBizumSplitCallback = { [self] success in
+                if success {
+                    registerSplitTransaction(method1: m1, method2: m2)
+                } else {
+                    // Bizum cancelled/failed — go back to split pay sheet
+                    showingSplitPaySheet = true
+                }
+            }
+        } else {
+            // Both methods are simple (cash/transfer etc.) — register immediately
+            registerSplitTransaction(method1: m1, method2: m2)
+        }
+    }
+
     /// Returns the unit price for a line item after applying any active discount promos.
     /// - Total-mode discounts: distributed proportionally across all line items by their share of the pre-discount total.
     /// - Product-mode discounts: applied directly to the matching product's unit price.
@@ -1381,6 +1642,7 @@ struct PanelFooterView: View {
     let categorySubtotal: (UUID) -> Decimal
     
     let onClear: () -> Void
+    let onSplit: () -> Void
     let onCheckout: () -> Void
     
     var body: some View {
@@ -1627,24 +1889,39 @@ struct PanelFooterView: View {
             .padding(.top, 10)
             .scrollDismissesKeyboard(.interactively)
             
-            // Action buttons - Clear 30%, Pay Now 70%
+            // Action buttons - Clear 25% · Split 25% · Pay Now 50%
             let cartHasItems = cart.values.contains { $0 > 0 }
             GeometryReader { geometry in
-                HStack(spacing: 10) {
+                let totalWidth = geometry.size.width
+                let gap: CGFloat = 8
+                let clearWidth = totalWidth * 0.25 - gap
+                let splitWidth = totalWidth * 0.25 - gap
+                let payWidth   = totalWidth * 0.50 - gap
+                HStack(spacing: gap) {
                     Button(action: onClear) {
                         Text("Clear")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: geometry.size.width * 0.35 - 5, height: 46)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: clearWidth, height: 46)
                             .background(cartHasItems ? Color.red : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)
                     }
                     .disabled(!cartHasItems)
                     
+                    Button(action: onSplit) {
+                        Text("Split")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: splitWidth, height: 46)
+                            .background(cartHasItems ? Color.blue : Color.gray)
+                            .foregroundStyle(.white)
+                            .cornerRadius(12)
+                    }
+                    .disabled(!cartHasItems)
+
                     Button(action: onCheckout) {
                         Text("Pay Now")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: geometry.size.width * 0.65 - 5, height: 46)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: payWidth, height: 46)
                             .background(cartHasItems ? Color.green : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)

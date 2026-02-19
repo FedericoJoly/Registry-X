@@ -689,13 +689,39 @@ struct TransactionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // HEADER ROW: Time + Icon | Amount | Delete
-            HStack {
-                HStack(spacing: 8) {
-                    Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
-                        .font(.headline)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    // First line: time + primary method icon
+                    HStack(spacing: 8) {
+                        Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
+                            .font(.headline)
+                        
+                        Image(systemName: paymentIcon)
+                            .foregroundStyle(paymentIconColor)
+                        
+                        // For split: show method1 amount inline
+                        if transaction.isSplit, let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1 {
+                            Text(currencySymbol(for: c1) + a1.formatted(.number.precision(.fractionLength(2))))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     
-                    Image(systemName: paymentIcon)
-                        .foregroundStyle(paymentIconColor)
+                    // Second line (split only): method2 icon + amount, indented to align with icon
+                    if transaction.isSplit,
+                       let icon2 = transaction.splitMethodIcon,
+                       let a2 = transaction.splitAmount2,
+                       let c2 = transaction.splitCurrencyCode2 {
+                        HStack(spacing: 8) {
+                            // Spacer to align with icon column (time text ~38pt)
+                            Color.clear.frame(width: 38, height: 1)
+                            Image(systemName: icon2)
+                                .foregroundStyle(.secondary)
+                            Text(currencySymbol(for: c2) + a2.formatted(.number.precision(.fractionLength(2))))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 
                 Spacer()

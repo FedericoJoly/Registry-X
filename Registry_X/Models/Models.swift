@@ -185,13 +185,22 @@ final class Transaction {
     // Receipt Email (for tap-to-pay receipts)
     var receiptEmail: String?
     
+    // Split Payment fields (isSplit = true when this tx used 2 methods)
+    var isSplit: Bool = false
+    var splitMethod: String?         // PaymentMethod.rawValue of the 2nd (simpler) method
+    var splitMethodIcon: String?     // SFSymbol icon of 2nd method
+    var splitAmount1: Decimal?       // 1st method share, in main currency
+    var splitAmount2: Decimal?       // 2nd method share, in main currency
+    var splitCurrencyCode1: String?  // currency the 1st method was charged in
+    var splitCurrencyCode2: String?  // currency the 2nd method was charged in
+    
     // Simplification: We store a snapshot of items logic or relationship?
     // For a POS, usually better to store line items to track what was sold.
     @Relationship(deleteRule: .cascade) var lineItems: [LineItem] = []
     
     @Relationship(inverse: \Event.transactions) var event: Event?
     
-    init(id: UUID = UUID(), timestamp: Date = Date(), totalAmount: Decimal, currencyCode: String, note: String? = nil, paymentMethod: PaymentMethod, paymentMethodIcon: String? = nil, transactionRef: String? = nil, stripePaymentIntentId: String? = nil, stripeSessionId: String? = nil, paymentStatus: String? = nil, receiptEmail: String? = nil) {
+    init(id: UUID = UUID(), timestamp: Date = Date(), totalAmount: Decimal, currencyCode: String, note: String? = nil, paymentMethod: PaymentMethod, paymentMethodIcon: String? = nil, transactionRef: String? = nil, stripePaymentIntentId: String? = nil, stripeSessionId: String? = nil, paymentStatus: String? = nil, receiptEmail: String? = nil, isSplit: Bool = false, splitMethod: String? = nil, splitMethodIcon: String? = nil, splitAmount1: Decimal? = nil, splitAmount2: Decimal? = nil, splitCurrencyCode1: String? = nil, splitCurrencyCode2: String? = nil) {
         self.id = id
         self.timestamp = timestamp
         self.totalAmount = totalAmount
@@ -204,6 +213,13 @@ final class Transaction {
         self.stripeSessionId = stripeSessionId
         self.paymentStatus = paymentStatus
         self.receiptEmail = receiptEmail
+        self.isSplit = isSplit
+        self.splitMethod = splitMethod
+        self.splitMethodIcon = splitMethodIcon
+        self.splitAmount1 = splitAmount1
+        self.splitAmount2 = splitAmount2
+        self.splitCurrencyCode1 = splitCurrencyCode1
+        self.splitCurrencyCode2 = splitCurrencyCode2
     }
 }
 
