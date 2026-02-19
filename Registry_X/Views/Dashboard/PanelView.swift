@@ -1130,6 +1130,7 @@ struct PanelView: View {
         
         cart.removeAll()
         note = ""
+        activeDiscountPromoIds.removeAll()
         
         // Clear overrides after checkout
         overriddenTotal = nil
@@ -1202,6 +1203,7 @@ struct PanelView: View {
         
         cart.removeAll()
         note = ""
+        activeDiscountPromoIds.removeAll()
         
         // Clear overrides after checkout
         overriddenTotal = nil
