@@ -1,51 +1,48 @@
 import SwiftUI
 
-// MARK: - Split Payment State
+// MARK: - Split Payment Row State
 struct SplitMethodEntry: Identifiable {
-    let id: UUID             // PaymentMethodOption.id
+    let id: UUID = UUID()                   // unique row id (NOT the method option id)
     let method: PaymentMethodOption
-    var amountText: String = ""       // displayed & entered in selectedCurrency (or main if none)
-    var selectedCurrencyId: UUID?     // which currency the user selected for this method
+    var amountText: String = ""
+    var selectedCurrencyId: UUID?
+    var isUserAdded: Bool = false            // true = inserted via double-tap (can be removed)
 }
 
 // MARK: - SplitPaySheet
 struct SplitPaySheet: View {
     let availableMethods: [PaymentMethodOption]
-    let availableCurrencies: [Currency]   // all enabled currencies on the event
+    let availableCurrencies: [Currency]
     let mainCurrencyCode: String
-    let derivedTotal: Decimal             // full cart total in main currency
+    let derivedTotal: Decimal
     let onCancel: () -> Void
-    // Called when OK tapped: method1, amount1InMain, currCode1, method2, amount2InMain, currCode2
-    let onConfirm: (PaymentMethodOption, Decimal, String, PaymentMethodOption, Decimal, String) -> Void
+    /// Called on OK with the fully-formed split entries
+    let onConfirm: ([SplitEntry]) -> Void
 
     @State private var entries: [SplitMethodEntry] = []
-    @FocusState private var focusedMethodId: UUID?
+    @FocusState private var focusedRowId: UUID?
+
+    // MARK: - Caps
+    private let maxTotalRows = 6
+    private let maxRowsPerMethod = 3
 
     // MARK: - Helpers
-    private func mainSymbol() -> String { symbol(for: mainCurrencyCode) }
-
     private func symbol(for code: String) -> String {
         availableCurrencies.first(where: { $0.code == code })?.symbol ?? code
     }
 
-    /// Exchange rate: 1 main → `rate` units of `code`.
-    /// Convention from PanelView: currency.rate = how many of this currency per 1 main.
     private func rate(for code: String) -> Decimal {
         if code == mainCurrencyCode { return 1 }
         return availableCurrencies.first(where: { $0.code == code })?.rate ?? 1
     }
 
-    /// Convert an amount from one currency to another via main as the pivot.
     private func convert(_ amount: Decimal, from fromCode: String, to toCode: String) -> Decimal {
         guard fromCode != toCode else { return amount }
-        let rateFrom = rate(for: fromCode)   // foreign per 1 main
-        let rateTo   = rate(for: toCode)
+        let rateFrom = rate(for: fromCode)
         guard rateFrom > 0 else { return amount }
-        let inMain = rateFrom > 0 ? amount / rateFrom : amount   // back to main
-        return inMain * rateTo
+        return (amount / rateFrom) * rate(for: toCode)
     }
 
-    /// Amount in main currency for a given entry.
     private func amountInMain(_ entry: SplitMethodEntry) -> Decimal {
         guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
               val > 0 else { return 0 }
@@ -54,65 +51,79 @@ struct SplitPaySheet: View {
         return r > 0 ? val / r : val
     }
 
-    // Sum of entered amounts converted to main currency
     private var enteredTotal: Decimal {
-        entries.reduce(Decimal(0)) { acc, entry in acc + amountInMain(entry) }
+        entries.reduce(Decimal(0)) { $0 + amountInMain($1) }
     }
 
     private var remaining: Decimal { derivedTotal - enteredTotal }
     private var isBalanced: Bool {
-        // Allow tiny floating-point epsilon
         let diff = enteredTotal - derivedTotal
         return diff >= -0.005 && diff <= 0.005
     }
 
-    // Methods that have Stripe card (tap-to-pay)
-    private func isCard(_ m: PaymentMethodOption) -> Bool {
-        m.icon.contains("creditcard") && m.enabledProviders.contains("stripe")
-    }
-    private func isQR(_ m: PaymentMethodOption) -> Bool {
-        m.icon.contains("qrcode") && m.enabledProviders.contains("stripe")
-    }
-
-    // Any card method has a value entered?
-    private var cardHasValue: Bool {
-        entries.contains { isCard($0.method) && (Decimal(string: $0.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0 }
-    }
-    // Any QR method has a value entered?
-    private var qrHasValue: Bool {
-        entries.contains { isQR($0.method) && (Decimal(string: $0.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0 }
-    }
-
-    // Methods with an entered value
     private var filledEntries: [SplitMethodEntry] {
-        entries.filter { amountInMain($0) > 0 }
+        entries.filter { amountInMain($0) > 0 && $0.selectedCurrencyId != nil }
     }
 
-    // Currency enabled for a method
-    private func isCurrencyEnabled(_ currency: Currency, for method: PaymentMethodOption) -> Bool {
-        method.enabledCurrencies.contains(currency.id)
-    }
-
-    // MARK: - OK validation: balanced and exactly 2 filled methods with currency selected
     private var canConfirm: Bool {
-        isBalanced &&
-        filledEntries.count == 2 &&
-        filledEntries.allSatisfy { $0.selectedCurrencyId != nil }
+        isBalanced && filledEntries.count >= 2
     }
 
+    // How many rows already exist for a given method option id
+    private func rowCount(for optionId: UUID) -> Int {
+        entries.filter { $0.method.id == optionId }.count
+    }
+
+    // Can we insert another row for this method?
+    private func canDuplicate(_ entry: SplitMethodEntry) -> Bool {
+        entries.count < maxTotalRows &&
+        rowCount(for: entry.method.id) < maxRowsPerMethod
+    }
+
+    // Insert a duplicate row of the same method immediately after the given row
+    private func insertRow(after entry: SplitMethodEntry) {
+        guard canDuplicate(entry) else { return }
+        guard let idx = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        var newRow = SplitMethodEntry(method: entry.method)
+        newRow.isUserAdded = true
+        withAnimation(.easeInOut(duration: 0.2)) {
+            entries.insert(newRow, at: idx + 1)
+        }
+    }
+
+    // MARK: - Build SplitEntry array for callback
+    private func buildSplitEntries() -> [SplitEntry] {
+        filledEntries.compactMap { entry in
+            guard let currId = entry.selectedCurrencyId,
+                  let currency = availableCurrencies.first(where: { $0.id == currId }),
+                  let rawVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
+                  rawVal > 0
+            else { return nil }
+            let aInMain = amountInMain(entry)
+            return SplitEntry(
+                method: entry.method.name,
+                methodIcon: entry.method.icon,
+                amountInMain: aInMain,
+                chargeAmount: rawVal,
+                currencyCode: currency.code
+            )
+        }
+    }
+
+    // MARK: - Body
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Running total header
+                // Header: total + remaining
                 VStack(spacing: 4) {
                     Text("Total")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Text(mainSymbol() + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                    Text(symbol(for: mainCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
                         .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(isBalanced ? .green : .primary)
                     if !isBalanced && enteredTotal > 0 {
-                        Text("\(mainSymbol())\(remaining.formatted(.number.precision(.fractionLength(2)))) remaining")
+                        Text("\(symbol(for: mainCurrencyCode))\(abs(remaining).formatted(.number.precision(.fractionLength(2)))) \(remaining > 0 ? "remaining" : "over")")
                             .font(.footnote)
                             .foregroundStyle(.red)
                     }
@@ -123,7 +134,21 @@ struct SplitPaySheet: View {
 
                 Divider()
 
-                // Method rows
+                // Hint for double-tap
+                HStack {
+                    Image(systemName: "hand.tap")
+                        .font(.caption)
+                    Text("Double-tap an icon to add another row of the same method (max 3)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(UIColor.systemGroupedBackground))
+
+                Divider()
+
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach($entries) { $entry in
@@ -131,12 +156,20 @@ struct SplitPaySheet: View {
                                 entry: $entry,
                                 availableCurrencies: availableCurrencies,
                                 mainCurrencyCode: mainCurrencyCode,
-                                isDisabledDueToMutualExclusion: mutuallyExcluded(entry),
-                                isCurrencyEnabled: { isCurrencyEnabled($0, for: entry.method) },
+                                canDuplicate: canDuplicate(entry),
+                                isCurrencyEnabled: { entry.method.enabledCurrencies.contains($0.id) },
                                 convert: convert,
-                                focusedId: $focusedMethodId
+                                focusedId: $focusedRowId,
+                                onDoubleTapIcon: { insertRow(after: entry) }
                             )
                             Divider().padding(.leading, 20)
+                        }
+                        .onDelete { indexSet in
+                            // Only allow deleting user-added rows
+                            let toRemove = indexSet.filter { entries[$0].isUserAdded }
+                            withAnimation {
+                                entries.remove(atOffsets: IndexSet(toRemove))
+                            }
                         }
                     }
                     .background(Color(UIColor.systemBackground))
@@ -145,7 +178,7 @@ struct SplitPaySheet: View {
                 }
             }
             .background(Color(UIColor.systemGroupedBackground))
-            .navigationTitle("Select Payment Methods")
+            .navigationTitle("Split Payment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -153,15 +186,7 @@ struct SplitPaySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("OK") {
-                        guard filledEntries.count == 2 else { return }
-                        let e1 = filledEntries[0]
-                        let e2 = filledEntries[1]
-                        // Pass main-currency amounts
-                        let a1 = amountInMain(e1)
-                        let a2 = amountInMain(e2)
-                        let c1 = availableCurrencies.first(where: { $0.id == e1.selectedCurrencyId })?.code ?? mainCurrencyCode
-                        let c2 = availableCurrencies.first(where: { $0.id == e2.selectedCurrencyId })?.code ?? mainCurrencyCode
-                        onConfirm(e1.method, a1, c1, e2.method, a2, c2)
+                        onConfirm(buildSplitEntries())
                     }
                     .bold()
                     .disabled(!canConfirm)
@@ -169,15 +194,8 @@ struct SplitPaySheet: View {
             }
         }
         .onAppear {
-            entries = availableMethods.map { SplitMethodEntry(id: $0.id, method: $0) }
+            entries = availableMethods.map { SplitMethodEntry(method: $0) }
         }
-    }
-
-    private func mutuallyExcluded(_ entry: SplitMethodEntry) -> Bool {
-        // Card and QR are mutually exclusive
-        if isCard(entry.method) && qrHasValue { return true }
-        if isQR(entry.method) && cardHasValue { return true }
-        return false
     }
 }
 
@@ -186,13 +204,12 @@ struct SplitMethodRow: View {
     @Binding var entry: SplitMethodEntry
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
-    let isDisabledDueToMutualExclusion: Bool
+    let canDuplicate: Bool
     let isCurrencyEnabled: (Currency) -> Bool
-    /// Convert amount between currency codes
     let convert: (Decimal, String, String) -> Decimal
     var focusedId: FocusState<UUID?>.Binding
+    let onDoubleTapIcon: () -> Void
 
-    private var isRowDisabled: Bool { isDisabledDueToMutualExclusion }
     private var hasValue: Bool {
         (Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0
     }
@@ -203,18 +220,38 @@ struct SplitMethodRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Method icon + name
-            Image(systemName: entry.method.icon)
-                .font(.title3)
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(isRowDisabled ? Color.gray : entry.method.color)
-                .cornerRadius(8)
+            // Method icon — double-tap to duplicate
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: entry.method.icon)
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(entry.method.color)
+                    .cornerRadius(8)
+                    .onTapGesture(count: 2) {
+                        onDoubleTapIcon()
+                    }
 
-            Text(entry.method.name)
-                .font(.body)
-                .foregroundStyle(isRowDisabled ? .secondary : .primary)
-                .frame(minWidth: 80, alignment: .leading)
+                // Badge if duplication is available
+                if canDuplicate {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.blue)
+                        .background(Circle().fill(Color.white).padding(-1))
+                        .offset(x: 4, y: -4)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.method.name)
+                    .font(.body)
+                if entry.isUserAdded {
+                    Text("Swipe to remove")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(minWidth: 80, alignment: .leading)
 
             Spacer()
 
@@ -228,32 +265,25 @@ struct SplitMethodRow: View {
                 .background(Color(UIColor.systemGray6))
                 .cornerRadius(8)
                 .focused(focusedId, equals: entry.id)
-                .disabled(isRowDisabled)
-                .opacity(isRowDisabled ? 0.4 : 1)
-                // Auto-clear if row becomes disabled
-                .onChange(of: isRowDisabled) { _, disabled in
-                    if disabled { entry.amountText = ""; entry.selectedCurrencyId = nil }
-                }
-                // Auto-clear selectedCurrencyId when amount is cleared
                 .onChange(of: entry.amountText) { _, newVal in
                     let v = Decimal(string: newVal.replacingOccurrences(of: ",", with: ".")) ?? 0
                     if v == 0 { entry.selectedCurrencyId = nil }
                 }
 
-            // Currency symbol buttons — only enabled after a value is entered
+            // Currency buttons
             HStack(spacing: 4) {
                 ForEach(availableCurrencies.filter { $0.isEnabled }, id: \.id) { currency in
-                    let enabled = isCurrencyEnabled(currency) && !isRowDisabled && hasValue
+                    let enabled = isCurrencyEnabled(currency) && hasValue
                     let selected = entry.selectedCurrencyId == currency.id
                     Button(action: {
                         guard enabled else { return }
                         if selected {
                             entry.selectedCurrencyId = nil
                         } else {
-                            // Convert existing amount from old currency to new currency
                             let oldCode = currentCurrencyCode()
                             let newCode = currency.code
-                            if hasValue, let oldVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) {
+                            if hasValue,
+                               let oldVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) {
                                 let newVal = convert(oldVal, oldCode, newCode)
                                 entry.amountText = newVal.formatted(.number.precision(.fractionLength(2)))
                             }
@@ -264,7 +294,7 @@ struct SplitMethodRow: View {
                             .font(.system(size: 14, weight: .bold))
                             .frame(width: 30, height: 30)
                             .background(selected ? Color.blue : (enabled ? Color(UIColor.systemGray5) : Color(UIColor.systemGray5).opacity(0.3)))
-                            .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.3)))
+                            .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.4)))
                             .cornerRadius(6)
                     }
                     .disabled(!enabled)
@@ -273,6 +303,5 @@ struct SplitMethodRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .animation(.easeInOut(duration: 0.15), value: isRowDisabled)
     }
 }

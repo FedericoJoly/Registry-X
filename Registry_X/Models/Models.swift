@@ -163,6 +163,17 @@ final class Category {
     }
 }
 
+// MARK: - Split Entry (N-way split payment)
+/// One leg of a split transaction. Stored as JSON in `Transaction.splitEntriesJSON`.
+struct SplitEntry: Codable, Identifiable {
+    var id: UUID = UUID()
+    var method: String           // PaymentMethod.rawValue
+    var methodIcon: String       // SF Symbol name
+    var amountInMain: Decimal    // share in the event main currency
+    var chargeAmount: Decimal    // amount in chargeCode (the currency the customer pays in)
+    var currencyCode: String     // the charge currency code
+}
+
 // MARK: - Transaction
 @Model
 final class Transaction {
@@ -185,22 +196,57 @@ final class Transaction {
     // Receipt Email (for tap-to-pay receipts)
     var receiptEmail: String?
     
-    // Split Payment fields (isSplit = true when this tx used 2 methods)
+    // Split Payment fields — DEPRECATED fixed 2-slot fields (kept for SwiftData schema safety)
+    // These are no longer written; use splitEntriesJSON / splitEntries instead.
+    @available(*, deprecated, message: "Use splitEntries")
     var isSplit: Bool = false
-    var splitMethod: String?         // PaymentMethod.rawValue of the 2nd (simpler) method
-    var splitMethodIcon: String?     // SFSymbol icon of 2nd method
-    var splitAmount1: Decimal?       // 1st method share, in main currency
-    var splitAmount2: Decimal?       // 2nd method share, in main currency
-    var splitCurrencyCode1: String?  // currency the 1st method was charged in
-    var splitCurrencyCode2: String?  // currency the 2nd method was charged in
-    
+    @available(*, deprecated, message: "Use splitEntries")
+    var splitMethod: String?
+    @available(*, deprecated, message: "Use splitEntries")
+    var splitMethodIcon: String?
+    @available(*, deprecated, message: "Use splitEntries")
+    var splitAmount1: Decimal?
+    @available(*, deprecated, message: "Use splitEntries")
+    var splitAmount2: Decimal?
+    @available(*, deprecated, message: "Use splitEntries")
+    var splitCurrencyCode1: String?
+    @available(*, deprecated, message: "Use splitEntries")
+    var splitCurrencyCode2: String?
+
+    // N-way split: JSON-encoded [SplitEntry] (nil = not a split transaction)
+    var splitEntriesJSON: String?
+
+    /// Decoded split entries. Empty array = not a split transaction.
+    var splitEntries: [SplitEntry] {
+        get {
+            guard let json = splitEntriesJSON,
+                  let data = json.data(using: .utf8),
+                  let entries = try? JSONDecoder().decode([SplitEntry].self, from: data)
+            else { return [] }
+            return entries
+        }
+        set {
+            if newValue.isEmpty {
+                splitEntriesJSON = nil
+            } else if let data = try? JSONEncoder().encode(newValue),
+                      let str = String(data: data, encoding: .utf8) {
+                splitEntriesJSON = str
+            }
+        }
+    }
+
+    /// True when this transaction was paid via multiple methods.
+    var isNWaySplit: Bool { splitEntries.count >= 2 }
+
     // Simplification: We store a snapshot of items logic or relationship?
     // For a POS, usually better to store line items to track what was sold.
     @Relationship(deleteRule: .cascade) var lineItems: [LineItem] = []
-    
+
     @Relationship(inverse: \Event.transactions) var event: Event?
-    
-    init(id: UUID = UUID(), timestamp: Date = Date(), totalAmount: Decimal, currencyCode: String, note: String? = nil, paymentMethod: PaymentMethod, paymentMethodIcon: String? = nil, transactionRef: String? = nil, stripePaymentIntentId: String? = nil, stripeSessionId: String? = nil, paymentStatus: String? = nil, receiptEmail: String? = nil, isSplit: Bool = false, splitMethod: String? = nil, splitMethodIcon: String? = nil, splitAmount1: Decimal? = nil, splitAmount2: Decimal? = nil, splitCurrencyCode1: String? = nil, splitCurrencyCode2: String? = nil) {
+
+    init(id: UUID = UUID(), timestamp: Date = Date(), totalAmount: Decimal, currencyCode: String, note: String? = nil, paymentMethod: PaymentMethod, paymentMethodIcon: String? = nil, transactionRef: String? = nil, stripePaymentIntentId: String? = nil, stripeSessionId: String? = nil, paymentStatus: String? = nil, receiptEmail: String? = nil, splitEntries: [SplitEntry] = [],
+         // Legacy parameters for backward compatibility — not written to new fields
+         isSplit: Bool = false, splitMethod: String? = nil, splitMethodIcon: String? = nil, splitAmount1: Decimal? = nil, splitAmount2: Decimal? = nil, splitCurrencyCode1: String? = nil, splitCurrencyCode2: String? = nil) {
         self.id = id
         self.timestamp = timestamp
         self.totalAmount = totalAmount
@@ -213,13 +259,31 @@ final class Transaction {
         self.stripeSessionId = stripeSessionId
         self.paymentStatus = paymentStatus
         self.receiptEmail = receiptEmail
-        self.isSplit = isSplit
-        self.splitMethod = splitMethod
-        self.splitMethodIcon = splitMethodIcon
-        self.splitAmount1 = splitAmount1
-        self.splitAmount2 = splitAmount2
-        self.splitCurrencyCode1 = splitCurrencyCode1
-        self.splitCurrencyCode2 = splitCurrencyCode2
+        // New N-way split
+        if !splitEntries.isEmpty {
+            if let data = try? JSONEncoder().encode(splitEntries),
+               let str = String(data: data, encoding: .utf8) {
+                self.splitEntriesJSON = str
+            }
+        } else if isSplit, let m2 = splitMethod, let a1 = splitAmount1, let a2 = splitAmount2,
+                  let c1 = splitCurrencyCode1, let c2 = splitCurrencyCode2 {
+            // Migrate legacy 2-slot call into new format
+            let icon1 = paymentMethodIcon ?? "creditcard"
+            let e1 = SplitEntry(method: paymentMethod.rawValue, methodIcon: icon1, amountInMain: a1, chargeAmount: a1, currencyCode: c1)
+            let e2 = SplitEntry(method: m2, methodIcon: splitMethodIcon ?? "banknote", amountInMain: a2, chargeAmount: a2, currencyCode: c2)
+            if let data = try? JSONEncoder().encode([e1, e2]),
+               let str = String(data: data, encoding: .utf8) {
+                self.splitEntriesJSON = str
+            }
+        }
+        // Deprecated fields kept nil — no longer written
+        self.isSplit = false
+        self.splitMethod = nil
+        self.splitMethodIcon = nil
+        self.splitAmount1 = nil
+        self.splitAmount2 = nil
+        self.splitCurrencyCode1 = nil
+        self.splitCurrencyCode2 = nil
     }
 }
 

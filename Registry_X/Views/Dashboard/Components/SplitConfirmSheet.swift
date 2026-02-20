@@ -1,20 +1,12 @@
 import SwiftUI
 
 // MARK: - Split Confirm Sheet
-/// Shows the two split methods with their converted amounts and triggers payment.
+/// Shows all split methods with their amounts and triggers sequential payment.
 struct SplitConfirmSheet: View {
-    // The two methods and their amounts (in main currency), plus the selected charge currency
-    let method1: PaymentMethodOption
-    let amount1InMain: Decimal       // entered amount in main currency
-    let currencyCode1: String        // currency to charge method1 in
-
-    let method2: PaymentMethodOption
-    let amount2InMain: Decimal
-    let currencyCode2: String
-
+    let splitEntries: [SplitEntry]
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
-    let totalAmount: Decimal         // full cart total in main currency
+    let totalAmount: Decimal
 
     let onCancel: () -> Void
     let onPay: () -> Void
@@ -24,23 +16,22 @@ struct SplitConfirmSheet: View {
         availableCurrencies.first(where: { $0.code == code })?.symbol ?? code
     }
 
-    /// Convert an amount in main currency → target currency using stored exchange rates.
-    /// Rate convention: currency.rate = how many units of this currency per 1 main-currency unit.
-    private func convertToDisplay(mainAmount: Decimal, targetCode: String) -> Decimal {
-        guard targetCode != mainCurrencyCode else { return mainAmount }
-        let targetRate = availableCurrencies.first(where: { $0.code == targetCode })?.rate ?? 1
-        // mainAmount / mainRate * targetRate — but mainRate is 1 by convention
-        // rate = foreign per 1 main, so: foreignAmount = mainAmount * rate
-        return mainAmount * targetRate
+    private func displayAmount(for entry: SplitEntry) -> Decimal {
+        guard entry.currencyCode != mainCurrencyCode else { return entry.amountInMain }
+        let rate = availableCurrencies.first(where: { $0.code == entry.currencyCode })?.rate ?? 1
+        return entry.amountInMain * rate
     }
 
-    private var displayAmount1: Decimal { convertToDisplay(mainAmount: amount1InMain, targetCode: currencyCode1) }
-    private var displayAmount2: Decimal { convertToDisplay(mainAmount: amount2InMain, targetCode: currencyCode2) }
+    private func icon(for entry: SplitEntry) -> String { entry.methodIcon }
+
+    private func color(for entry: SplitEntry) -> Color {
+        // Look up method option by name to get color
+        Color.blue // fallback; entries carry icon, not color hex
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Summary card
                 VStack(spacing: 20) {
                     Text("Review Split Payment")
                         .font(.title3)
@@ -48,9 +39,12 @@ struct SplitConfirmSheet: View {
                         .padding(.top, 8)
 
                     VStack(spacing: 0) {
-                        methodRow(method: method1, amount: displayAmount1, currencyCode: currencyCode1)
-                        Divider().padding(.leading, 68)
-                        methodRow(method: method2, amount: displayAmount2, currencyCode: currencyCode2)
+                        ForEach(Array(splitEntries.enumerated()), id: \.offset) { idx, entry in
+                            entryRow(entry: entry, index: idx + 1)
+                            if idx < splitEntries.count - 1 {
+                                Divider().padding(.leading, 68)
+                            }
+                        }
                     }
                     .background(Color(UIColor.systemBackground))
                     .cornerRadius(14)
@@ -72,8 +66,7 @@ struct SplitConfirmSheet: View {
 
                 Spacer()
 
-                // Note
-                Text("Payment will be attempted in the order listed above.\nThe more complex method is processed first.")
+                Text("Payment will be attempted in order.\nCard / QR payments require Tap to Pay.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -88,32 +81,45 @@ struct SplitConfirmSheet: View {
                     Button("Back", action: onCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Pay") {
-                        onPay()
-                    }
-                    .bold()
-                    .tint(.green)
+                    Button("Pay") { onPay() }
+                        .bold()
+                        .tint(.green)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func methodRow(method: PaymentMethodOption, amount: Decimal, currencyCode: String) -> some View {
+    private func entryRow(entry: SplitEntry, index: Int) -> some View {
         HStack(spacing: 16) {
-            Image(systemName: method.icon)
-                .font(.title3)
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(method.color)
-                .cornerRadius(10)
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.blue)
+                    .frame(width: 44, height: 44)
+                Image(systemName: entry.methodIcon)
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                if splitEntries.filter({ $0.methodIcon == entry.methodIcon && $0.method == entry.method }).count > 1 {
+                    Text("\(index)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 16, height: 16)
+                        .background(Circle().fill(Color.orange))
+                        .offset(x: 14, y: -14)
+                }
+            }
 
-            Text(method.name)
-                .font(.body)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.method)
+                    .font(.body)
+                Text(entry.currencyCode)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 
-            Text(symbol(for: currencyCode) + amount.formatted(.number.precision(.fractionLength(2))))
+            Text(symbol(for: entry.currencyCode) + displayAmount(for: entry).formatted(.number.precision(.fractionLength(2))))
                 .font(.body)
                 .bold()
         }

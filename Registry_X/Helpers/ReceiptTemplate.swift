@@ -54,39 +54,23 @@ struct ReceiptTemplate {
         
         // Build payment method section (split-aware)
         let paymentSectionHTML: String
-        if transaction.isSplit,
-           let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1,
-           let splitMethod = transaction.splitMethod, let a2 = transaction.splitAmount2, let c2 = transaction.splitCurrencyCode2 {
-            
-            let method1Name: String
-            switch transaction.paymentMethod {
-            case .cash: method1Name = "Cash"
-            case .transfer: method1Name = "Bank Transfer"
-            case .card: method1Name = "Card"
-            case .other:
-                if transaction.paymentMethodIcon == "phone.fill" { method1Name = "Bizum" }
-                else { method1Name = "Other" }
+        if transaction.isNWaySplit {
+            let entries = transaction.splitEntries
+            var rows = ""
+            for entry in entries {
+                let formattedAmt = format(mainAmount: entry.amountInMain, chargeCode: entry.currencyCode)
+                rows += """
+                    <tr>
+                        <td style="font-size: 15px; font-weight: 600; color: #333; padding-bottom: 6px;">\(entry.method)</td>
+                        <td style="font-size: 15px; font-weight: 600; color: #667eea; text-align: right; padding-bottom: 6px;">\(formattedAmt)</td>
+                    </tr>
+                """
             }
-            let method2Name: String
-            switch PaymentMethod(rawValue: splitMethod) ?? .cash {
-            case .cash: method2Name = "Cash"
-            case .transfer: method2Name = "Bank Transfer"
-            case .card: method2Name = "Card"
-            case .other: method2Name = "Bizum"
-            }
-            
             paymentSectionHTML = """
             <div style="padding: 15px; background-color: #f0f7ff; border-left: 4px solid #667eea; border-radius: 4px; margin-bottom: 20px;">
                 <p style="margin: 0 0 10px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Split Payment</p>
                 <table style="width: 100%;">
-                    <tr>
-                        <td style="font-size: 15px; font-weight: 600; color: #333; padding-bottom: 6px;">\(method1Name)</td>
-                        <td style="font-size: 15px; font-weight: 600; color: #667eea; text-align: right; padding-bottom: 6px;">\(format(mainAmount: a1, chargeCode: c1))</td>
-                    </tr>
-                    <tr>
-                        <td style="font-size: 15px; font-weight: 600; color: #333;">\(method2Name)</td>
-                        <td style="font-size: 15px; font-weight: 600; color: #667eea; text-align: right;">\(format(mainAmount: a2, chargeCode: c2))</td>
-                    </tr>
+                    \(rows)
                 </table>
             </div>
             """

@@ -143,23 +143,27 @@ struct RegistryView: View {
                 
                 // Find transaction for this item to get payment method
                 if let transaction = dayTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    if transaction.isSplit,
-                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
-                       let m2Icon = transaction.splitMethodIcon, let splitMethod = transaction.splitMethod {
-                        let total = a1 + a2
-                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
-                        let ratio2 = 1 - ratio1
-                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let sub2 = item.subtotal - sub1
-                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: m2Icon)
-                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        // Fractional units: qty proportional to each method's share
-                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let qty2 = Decimal(item.quantity) - qty1
-                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
-                        if sub2 > 0 {
-                            currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2))
+                    if transaction.isNWaySplit {
+                        let entries = transaction.splitEntries
+                        let entryTotal = entries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                        var remaining = item.subtotal
+                        for (i, entry) in entries.enumerated() {
+                            let ratio = entryTotal > 0 ? entry.amountInMain / entryTotal : (Decimal(1) / Decimal(entries.count))
+                            let share: Decimal
+                            if i == entries.count - 1 {
+                                share = remaining
+                            } else {
+                                let rounded = NSDecimalNumber(decimal: item.subtotal * ratio)
+                                    .rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                share = rounded
+                                remaining -= rounded
+                            }
+                            if share > 0 {
+                                let qtyShare = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio)
+                                    .rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                                currencyDict[currencyCode]!.append((method: entry.method, quantity: qtyShare, subtotal: share))
+                            }
                         }
                     } else {
                         let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
@@ -306,23 +310,27 @@ struct RegistryView: View {
                 
                 // Find transaction for this item to get payment method
                 if let transaction = dayTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    if transaction.isSplit,
-                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
-                       let m2Icon = transaction.splitMethodIcon, let splitMethod = transaction.splitMethod {
-                        let total = a1 + a2
-                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
-                        let ratio2 = 1 - ratio1
-                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let sub2 = item.subtotal - sub1
-                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: m2Icon)
-                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        // Fractional units proportional to each method's share
-                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let qty2 = Decimal(item.quantity) - qty1
-                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
-                        if sub2 > 0 {
-                            currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2))
+                    if transaction.isNWaySplit {
+                        let entries = transaction.splitEntries
+                        let entryTotal = entries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                        var remaining = item.subtotal
+                        for (i, entry) in entries.enumerated() {
+                            let ratio = entryTotal > 0 ? entry.amountInMain / entryTotal : (Decimal(1) / Decimal(entries.count))
+                            let share: Decimal
+                            if i == entries.count - 1 {
+                                share = remaining
+                            } else {
+                                let rounded = NSDecimalNumber(decimal: item.subtotal * ratio)
+                                    .rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                share = rounded
+                                remaining -= rounded
+                            }
+                            if share > 0 {
+                                let qtyShare = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio)
+                                    .rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                                currencyDict[currencyCode]!.append((method: entry.method, quantity: qtyShare, subtotal: share))
+                            }
                         }
                     } else {
                         let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
@@ -768,22 +776,14 @@ struct TransactionCard: View {
                 Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
                     .font(.headline)
 
-                if transaction.isSplit,
-                   let icon2 = transaction.splitMethodIcon,
-                   let a1 = transaction.splitAmount1, let c1 = transaction.splitCurrencyCode1,
-                   let a2 = transaction.splitAmount2, let c2 = transaction.splitCurrencyCode2 {
-                    // Method 1 — convert from main to charge currency for display
-                    Image(systemName: paymentIcon)
-                        .foregroundStyle(paymentIconColor)
-                    Text(currencySymbol(for: c1) + splitDisplayAmount(a1, chargeCode: c1).formatted(.number.precision(.fractionLength(2))))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    // Method 2
-                    Image(systemName: icon2)
-                        .foregroundStyle(splitMethodIconColor(icon: icon2))
-                    Text(currencySymbol(for: c2) + splitDisplayAmount(a2, chargeCode: c2).formatted(.number.precision(.fractionLength(2))))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                if transaction.isNWaySplit {
+                    ForEach(Array(transaction.splitEntries.enumerated()), id: \.offset) { _, entry in
+                        Image(systemName: entry.methodIcon)
+                            .foregroundStyle(splitMethodIconColor(icon: entry.methodIcon))
+                        Text(currencySymbol(for: entry.currencyCode) + splitDisplayAmount(entry.amountInMain, chargeCode: entry.currencyCode).formatted(.number.precision(.fractionLength(2))))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     Image(systemName: paymentIcon)
                         .foregroundStyle(paymentIconColor)

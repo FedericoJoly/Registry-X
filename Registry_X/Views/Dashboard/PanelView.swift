@@ -60,12 +60,7 @@ struct PanelView: View {
     // Split Payment State
     @State private var showingSplitPaySheet = false
     @State private var showingSplitConfirmSheet = false
-    @State private var pendingSplitMethod1: PaymentMethodOption? = nil
-    @State private var pendingSplitMethod2: PaymentMethodOption? = nil
-    @State private var pendingSplitAmount1: Decimal = 0   // in main currency
-    @State private var pendingSplitAmount2: Decimal = 0
-    @State private var pendingSplitCurrencyCode1: String = ""
-    @State private var pendingSplitCurrencyCode2: String = ""
+    @State private var pendingSplitEntries: [SplitEntry] = []   // N-way split entries
     // Callbacks for when a Stripe/Bizum result completes during a split payment
     @State private var pendingSplitStripeCallback: ((String?, String?) -> Void)? = nil
     @State private var pendingBizumSplitCallback: ((Bool) -> Void)? = nil
@@ -1092,27 +1087,15 @@ struct PanelView: View {
                 onCancel: {
                     showingSplitPaySheet = false
                 },
-                onConfirm: { m1, a1, c1, m2, a2, c2 in
-                    // Determine which method is more complex (order: Card > QR > Bizum > others)
-                    let priority: (PaymentMethodOption) -> Int = { m in
-                        if m.icon.contains("creditcard") && m.enabledProviders.contains("stripe") { return 3 }
-                        if m.icon.contains("qrcode") && m.enabledProviders.contains("stripe") { return 2 }
-                        if m.icon.contains("phone") { return 1 }
+                onConfirm: { entries in
+                    // Sort entries: card > QR > bizum > others (complex first)
+                    let priority: (SplitEntry) -> Int = { e in
+                        if e.methodIcon.contains("creditcard") { return 3 }
+                        if e.methodIcon.contains("qrcode") { return 2 }
+                        if e.methodIcon.contains("phone") { return 1 }
                         return 0
                     }
-                    // Sort so most complex is first
-                    let ordered: [(PaymentMethodOption, Decimal, String)]
-                    if priority(m1) >= priority(m2) {
-                        ordered = [(m1, a1, c1), (m2, a2, c2)]
-                    } else {
-                        ordered = [(m2, a2, c2), (m1, a1, c1)]
-                    }
-                    pendingSplitMethod1 = ordered[0].0
-                    pendingSplitAmount1 = ordered[0].1
-                    pendingSplitCurrencyCode1 = ordered[0].2
-                    pendingSplitMethod2 = ordered[1].0
-                    pendingSplitAmount2 = ordered[1].1
-                    pendingSplitCurrencyCode2 = ordered[1].2
+                    pendingSplitEntries = entries.sorted { priority($0) > priority($1) }
                     showingSplitPaySheet = false
                     showingSplitConfirmSheet = true
                 }
@@ -1120,19 +1103,15 @@ struct PanelView: View {
         }
         // Split Confirm Sheet (step 2 — review & pay)
         .sheet(isPresented: $showingSplitConfirmSheet) {
-            if let m1 = pendingSplitMethod1, let m2 = pendingSplitMethod2 {
+            if !pendingSplitEntries.isEmpty {
                 let enabledCurrencies = event.currencies.filter { $0.isEnabled }
                 let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+                let total = pendingSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
                 SplitConfirmSheet(
-                    method1: m1,
-                    amount1InMain: pendingSplitAmount1,
-                    currencyCode1: pendingSplitCurrencyCode1,
-                    method2: m2,
-                    amount2InMain: pendingSplitAmount2,
-                    currencyCode2: pendingSplitCurrencyCode2,
+                    splitEntries: pendingSplitEntries,
                     availableCurrencies: enabledCurrencies,
                     mainCurrencyCode: mainCode,
-                    totalAmount: pendingSplitAmount1 + pendingSplitAmount2,
+                    totalAmount: total,
                     onCancel: {
                         showingSplitConfirmSheet = false
                         showingSplitPaySheet = true
@@ -1391,206 +1370,149 @@ struct PanelView: View {
         }
     }
     
-    /// Processes a split payment. Method 1 is the more complex one (Card > QR > Bizum > Cash).
-    /// Triggers hardware payment for Stripe methods. On success registers one split Transaction.
+    /// Processes an N-way split payment by iterating pendingSplitEntries sequentially.
+    /// Card/QR entries trigger TTP; Bizum entries trigger the Bizum sheet.
+    /// After all hardware payments succeed, one Transaction is saved with [SplitEntry] JSON.
     func processSplitCheckout() {
         guard !event.isLocked else { return }
         guard cart.values.contains(where: { $0 > 0 }) else { return }
-        guard let m1 = pendingSplitMethod1, let m2 = pendingSplitMethod2 else { return }
-
-        let isCard1  = m1.icon.contains("creditcard") && m1.enabledProviders.contains("stripe")
-        let isQR1    = m1.icon.contains("qrcode")    && m1.enabledProviders.contains("stripe")
-        let isBizum1 = m1.icon.contains("phone")
-
-        let isBizum2 = m2.icon.contains("phone")
+        guard !pendingSplitEntries.isEmpty else { return }
 
         let txnRef = generateTransactionRef()
+        let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
 
-        // Helper: register the split transaction after all payment methods succeed
-        func registerSplitTransaction(method1: PaymentMethodOption, method2: PaymentMethodOption,
-                                      stripeIntentId: String? = nil, stripeSessionId: String? = nil) {
+        // ── Finalise: save one Transaction with all N entries ─────────────────
+        func finaliseSplitTransaction(stripeIntentId: String? = nil, stripeSessionId: String? = nil, receiptEmail: String? = nil) {
+            let mainTotal = pendingSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+            // Primary method = first entry (most complex — card > QR > bizum > cash)
+            let primary = pendingSplitEntries[0]
+            let primaryMethod = PaymentMethod(rawValue: primary.method) ?? .cash
 
-            // Determine if any manual method (Cash/Transfer) needs a receipt prompt
-            let method1IsManual = !method1.enabledProviders.contains("stripe") && !method1.icon.contains("phone")
-            let method2IsManual = !method2.enabledProviders.contains("stripe") && !method2.icon.contains("phone")
-            let needsReceiptPrompt = method1IsManual || method2IsManual
+            let transaction = Transaction(
+                totalAmount: mainTotal,
+                currencyCode: mainCode,
+                note: note.isEmpty ? nil : note,
+                paymentMethod: primaryMethod,
+                paymentMethodIcon: primary.methodIcon,
+                transactionRef: txnRef,
+                stripePaymentIntentId: stripeIntentId,
+                stripeSessionId: stripeSessionId,
+                paymentStatus: (stripeIntentId != nil || stripeSessionId != nil) ? "succeeded" : "manual",
+                receiptEmail: receiptEmail,
+                splitEntries: pendingSplitEntries
+            )
 
-            // The actual registration closure, called after receipt step (or directly)
-            func finaliseSplitRegistration(receiptEmail: String?) {
-                print("[Split] finaliseSplitRegistration called. receiptEmail=\(receiptEmail ?? "nil"), method1=\(method1.name), method2=\(method2.name)")
-                let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
-                let mainTotal = pendingSplitAmount1 + pendingSplitAmount2
-                let transaction = Transaction(
-                    totalAmount: mainTotal,
-                    currencyCode: mainCode,
-                    note: note.isEmpty ? nil : note,
-                    paymentMethod: method1.toPaymentMethod(),
-                    paymentMethodIcon: method1.icon,
-                    transactionRef: txnRef,
-                    stripePaymentIntentId: stripeIntentId,
-                    stripeSessionId: stripeSessionId,
-                    paymentStatus: (stripeIntentId != nil || stripeSessionId != nil) ? "succeeded" : "manual",
-                    receiptEmail: receiptEmail,
-                    isSplit: true,
-                    splitMethod: method2.toPaymentMethod().rawValue,
-                    splitMethodIcon: method2.icon,
-                    splitAmount1: pendingSplitAmount1,
-                    splitAmount2: pendingSplitAmount2,
-                    splitCurrencyCode1: pendingSplitCurrencyCode1,
-                    splitCurrencyCode2: pendingSplitCurrencyCode2
-                )
-
-                for (id, qty) in cart {
-                    if qty > 0, let product = event.products.first(where: { $0.id == id }) {
-                        let basePrice = proratedUnitPrice(for: id, quantity: qty)
-                        let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
-                        let line = LineItem(productName: product.name, quantity: qty,
-                                           unitPrice: finalPrice, subgroup: product.subgroup)
-                        line.product = product
-                        transaction.lineItems.append(line)
-                    }
+            for (id, qty) in cart {
+                if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                    let basePrice = proratedUnitPrice(for: id, quantity: qty)
+                    let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                    let line = LineItem(productName: product.name, quantity: qty,
+                                       unitPrice: finalPrice, subgroup: product.subgroup)
+                    line.product = product
+                    transaction.lineItems.append(line)
                 }
-                transaction.event = event
-                event.transactions.append(transaction)
+            }
+            transaction.event = event
+            event.transactions.append(transaction)
 
-                if event.isStockControlEnabled {
-                    for lineItem in transaction.lineItems {
-                        if let product = lineItem.product, product.stockQty != nil {
-                            product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
-                        }
-                    }
-                }
-
-                // Send receipt if email provided
-                if let email = receiptEmail, !email.isEmpty {
-                    print("[Split] Attempting to send receipt to \(email)")
-                    // Try method2 first for receipt (usually Cash/Transfer — the simpler method)
-                    let payMethod = method2.toPaymentMethod()
-                    let usesCustom = ReceiptService.usesCustomReceipt(paymentMethod: payMethod)
-                    print("[Split] method2=\(payMethod.rawValue), usesCustomReceipt=\(usesCustom)")
-                    Task {
-                        let result = await ReceiptService.sendCustomReceipt(
-                            transaction: transaction,
-                            event: event,
-                            email: email
-                        )
-                        print("[Split] Receipt send result: success=\(result.success), error=\(result.error ?? "none")")
-                    }
-                } else {
-                    print("[Split] No receipt requested (email nil or empty)")
-                }
-
-                cart.removeAll()
-                note = ""
-                activeDiscountPromoIds.removeAll()
-                overriddenTotal = nil
-                overriddenCategoryTotals.removeAll()
-                pendingSplitMethod1 = nil
-                pendingSplitMethod2 = nil
-
-                withAnimation { showingTransactionNotification = true }
-                Task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await MainActor.run {
-                        withAnimation { showingTransactionNotification = false }
+            if event.isStockControlEnabled {
+                for lineItem in transaction.lineItems {
+                    if let product = lineItem.product, product.stockQty != nil {
+                        product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
                     }
                 }
             }
 
-            if needsReceiptPrompt {
-                // Ask for receipt before registering, using the same manual receipt flow
-                pendingSplitRegisterCallback = { email in finaliseSplitRegistration(receiptEmail: email) }
+            if let email = receiptEmail, !email.isEmpty {
+                Task {
+                    let _ = await ReceiptService.sendCustomReceipt(transaction: transaction, event: event, email: email)
+                }
+            }
+
+            cart.removeAll()
+            note = ""
+            activeDiscountPromoIds.removeAll()
+            overriddenTotal = nil
+            overriddenCategoryTotals.removeAll()
+            pendingSplitEntries = []
+
+            withAnimation { showingTransactionNotification = true }
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run { withAnimation { showingTransactionNotification = false } }
+            }
+        }
+
+        // ── Receipt prompt helper ─────────────────────────────────────────────
+        func maybePromptReceiptAndFinalise(stripeIntentId: String? = nil, stripeSessionId: String? = nil) {
+            let hasManual = pendingSplitEntries.contains {
+                let m = PaymentMethod(rawValue: $0.method) ?? .cash
+                return m == .cash || m == .transfer
+            }
+            if hasManual {
+                pendingSplitRegisterCallback = { email in
+                    finaliseSplitTransaction(stripeIntentId: stripeIntentId, stripeSessionId: stripeSessionId, receiptEmail: email)
+                }
                 showingManualReceiptPrompt = true
             } else {
-                // Stripe Card: receipt already handled, QR: automatic — register immediately
-                finaliseSplitRegistration(receiptEmail: nil)
+                finaliseSplitTransaction(stripeIntentId: stripeIntentId, stripeSessionId: stripeSessionId)
             }
         }
 
-        // Determine processing path for complex method (m1)
-        if isCard1 {
-            // Tap-to-pay via Stripe Card
-            guard event.stripeBackendURL != nil else {
-                // No Stripe backend — fall back to manual for both
-                registerSplitTransaction(method1: m1, method2: m2)
+        // ── Sequential processing using index ────────────────────────────────
+        // Process entries one by one. State: currentSplitIdx tracks which entry is being processed.
+        // Collect stripe intent/session from the first card/QR that succeeds.
+        var collectedIntentId: String? = nil
+        var collectedSessionId: String? = nil
+
+        func processEntry(at idx: Int) {
+            guard idx < pendingSplitEntries.count else {
+                // All entries processed — finalise
+                maybePromptReceiptAndFinalise(stripeIntentId: collectedIntentId, stripeSessionId: collectedSessionId)
                 return
             }
-            selectedMethodOption = m1
-            selectedPaymentMethod = m1.toPaymentMethod()
-            pendingTxnRef = txnRef
-            // Charge only the card fraction, converted to its charge currency
-            let chargeRate1 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode1 })?.rate ?? 1
-            splitChargeAmount = pendingSplitAmount1 * chargeRate1
-            splitChargeCurrency = pendingSplitCurrencyCode1.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode1
-            showingStripeCardPayment = true
-            pendingSplitStripeCallback = { [self] intentId, sessionId in
-                // Bizum second if applicable
-                if isBizum2 {
-                    // Set Bizum charge amount for method2
-                    let chargeRate2 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode2 })?.rate ?? 1
-                    splitChargeAmount = pendingSplitAmount2 * chargeRate2
-                    splitChargeCurrency = pendingSplitCurrencyCode2.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode2
-                    showingBizumPayment = true
-                    pendingBizumSplitCallback = { [self] success in
-                        let finalMethod2 = success ? m2 : PaymentMethodOption(
-                            id: m2.id, name: "Cash", icon: "banknote",
-                            color: .green, isEnabled: true)
-                        registerSplitTransaction(method1: m1, method2: finalMethod2,
-                                                 stripeIntentId: intentId, stripeSessionId: sessionId)
+            let entry = pendingSplitEntries[idx]
+            let isCard  = entry.methodIcon.contains("creditcard")
+            let isQR    = entry.methodIcon.contains("qrcode")
+            let isBizum = entry.methodIcon.contains("phone")
+            let hasStripeBackend = event.stripeBackendURL != nil
+
+            let chargeRate = event.currencies.first(where: { $0.code == entry.currencyCode })?.rate ?? 1
+            let chargeAmt  = entry.amountInMain * chargeRate
+
+            if (isCard || isQR) && hasStripeBackend {
+                selectedPaymentMethod = PaymentMethod(rawValue: entry.method) ?? .cash
+                splitChargeAmount = chargeAmt
+                splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
+                if isCard {
+                    showingStripeCardPayment = true
+                } else {
+                    showingStripeQRPayment = true
+                }
+                pendingSplitStripeCallback = { intentId, sessionId in
+                    if collectedIntentId == nil { collectedIntentId = intentId }
+                    if collectedSessionId == nil { collectedSessionId = sessionId }
+                    processEntry(at: idx + 1)
+                }
+            } else if isBizum {
+                splitChargeAmount = chargeAmt
+                splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
+                showingBizumPayment = true
+                pendingBizumSplitCallback = { success in
+                    if success {
+                        processEntry(at: idx + 1)
+                    } else {
+                        // Bizum cancelled — go back to split sheet so user can retry
+                        showingSplitPaySheet = true
                     }
-                } else {
-                    registerSplitTransaction(method1: m1, method2: m2,
-                                             stripeIntentId: intentId, stripeSessionId: sessionId)
                 }
+            } else {
+                // Simple method (cash, transfer) — no hardware, advance immediately
+                processEntry(at: idx + 1)
             }
-        } else if isQR1 {
-            guard event.stripeBackendURL != nil else {
-                registerSplitTransaction(method1: m1, method2: m2)
-                return
-            }
-            selectedMethodOption = m1
-            selectedPaymentMethod = m1.toPaymentMethod()
-            pendingTxnRef = txnRef
-            let chargeRate1 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode1 })?.rate ?? 1
-            splitChargeAmount = pendingSplitAmount1 * chargeRate1
-            splitChargeCurrency = pendingSplitCurrencyCode1.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode1
-            showingStripeQRPayment = true
-            pendingSplitStripeCallback = { [self] intentId, sessionId in
-                if isBizum2 {
-                    let chargeRate2 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode2 })?.rate ?? 1
-                    splitChargeAmount = pendingSplitAmount2 * chargeRate2
-                    splitChargeCurrency = pendingSplitCurrencyCode2.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode2
-                    showingBizumPayment = true
-                    pendingBizumSplitCallback = { [self] success in
-                        let finalMethod2 = success ? m2 : PaymentMethodOption(
-                            id: m2.id, name: "Cash", icon: "banknote",
-                            color: .green, isEnabled: true)
-                        registerSplitTransaction(method1: m1, method2: finalMethod2,
-                                                 stripeIntentId: intentId, stripeSessionId: sessionId)
-                    }
-                } else {
-                    registerSplitTransaction(method1: m1, method2: m2,
-                                             stripeIntentId: intentId, stripeSessionId: sessionId)
-                }
-            }
-        } else if isBizum1 {
-            // Bizum first — charge only method1 fraction
-            let chargeRate1 = event.currencies.first(where: { $0.code == pendingSplitCurrencyCode1 })?.rate ?? 1
-            splitChargeAmount = pendingSplitAmount1 * chargeRate1
-            splitChargeCurrency = pendingSplitCurrencyCode1.isEmpty ? currentCurrencyCode : pendingSplitCurrencyCode1
-            showingBizumPayment = true
-            pendingBizumSplitCallback = { [self] success in
-                if success {
-                    registerSplitTransaction(method1: m1, method2: m2)
-                } else {
-                    // Bizum cancelled/failed — go back to split pay sheet
-                    showingSplitPaySheet = true
-                }
-            }
-        } else {
-            // Both methods are simple (cash/transfer etc.) — register immediately
-            registerSplitTransaction(method1: m1, method2: m2)
         }
+
+        processEntry(at: 0)
     }
 
     /// Returns the unit price for a line item after applying any active discount promos.

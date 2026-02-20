@@ -714,15 +714,9 @@ struct EventListView: View {
                  note: trans.note,
                  paymentMethod: trans.paymentMethod,
                  paymentMethodIcon: trans.paymentMethodIcon,
-                 transactionRef: trans.transactionRef,
-                 isSplit: trans.isSplit,
-                 splitMethod: trans.splitMethod,
-                 splitMethodIcon: trans.splitMethodIcon,
-                 splitAmount1: trans.splitAmount1,
-                 splitAmount2: trans.splitAmount2,
-                 splitCurrencyCode1: trans.splitCurrencyCode1,
-                 splitCurrencyCode2: trans.splitCurrencyCode2
+                 transactionRef: trans.transactionRef
              )
+             newTrans.splitEntriesJSON = trans.splitEntriesJSON
              newTrans.event = newEvent
              modelContext.insert(newTrans)
               for item in trans.lineItems {

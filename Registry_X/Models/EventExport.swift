@@ -128,14 +128,8 @@ struct TransactionExport: Codable, Sendable {
     let paymentMethod: String
     let paymentMethodIcon: String?
     let transactionRef: String?
-    // Split payment fields
-    let isSplit: Bool
-    let splitMethod: String?
-    let splitMethodIcon: String?
-    let splitAmount1: Decimal?
-    let splitAmount2: Decimal?
-    let splitCurrencyCode1: String?
-    let splitCurrencyCode2: String?
+    // N-way split payment fields
+    let splitEntriesJSON: String?  // JSON-encoded [SplitEntry]
     let lineItems: [LineItemExport]
 }
 
@@ -278,13 +272,7 @@ extension Event {
                 paymentMethod: trans.paymentMethod.rawValue,
                 paymentMethodIcon: trans.paymentMethodIcon,
                 transactionRef: trans.transactionRef,
-                isSplit: trans.isSplit,
-                splitMethod: trans.splitMethod,
-                splitMethodIcon: trans.splitMethodIcon,
-                splitAmount1: trans.splitAmount1,
-                splitAmount2: trans.splitAmount2,
-                splitCurrencyCode1: trans.splitCurrencyCode1,
-                splitCurrencyCode2: trans.splitCurrencyCode2,
+                splitEntriesJSON: trans.splitEntriesJSON,
                 lineItems: lineItemExports
             )
         }

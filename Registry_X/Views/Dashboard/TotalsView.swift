@@ -137,19 +137,14 @@ struct TotalsView: View {
         
         for transaction in allTransactions {
             let totalQty = Decimal(transaction.lineItems.reduce(0) { $0 + $1.quantity })
-            if transaction.isSplit,
-               let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
-               let splitMethod = transaction.splitMethod {
-                let total = a1 + a2
-                let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
-                let ratio2 = 1 - ratio1
-                let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: transaction.splitMethodIcon)
-                // Method1 — in main currency
-                if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
-                currencyDict[transaction.currencyCode]!.append((method: methodName1, quantity: totalQty * ratio1, subtotal: a1))
-                // Method2 — in main currency
-                currencyDict[transaction.currencyCode]!.append((method: methodName2, quantity: totalQty * ratio2, subtotal: a2))
+            if transaction.isNWaySplit {
+                let entries = transaction.splitEntries
+                let entryTotal = entries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                for entry in entries {
+                    let ratio = entryTotal > 0 ? entry.amountInMain / entryTotal : (Decimal(1) / Decimal(entries.count))
+                    if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
+                    currencyDict[transaction.currencyCode]!.append((method: entry.method, quantity: totalQty * ratio, subtotal: entry.amountInMain))
+                }
             } else {
                 let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                 if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
@@ -218,21 +213,26 @@ struct TotalsView: View {
                 totalUnits += item.quantity
                 
                 if let transaction = allTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    if transaction.isSplit,
-                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
-                       let splitMethod = transaction.splitMethod {
-                        let total = a1 + a2
-                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
-                        let ratio2 = 1 - ratio1
-                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let sub2 = item.subtotal - sub1
-                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let qty2 = Decimal(item.quantity) - qty1
-                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: transaction.splitMethodIcon)
-                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
-                        if sub2 > 0 { currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2)) }
+                    if transaction.isNWaySplit {
+                        let entries = transaction.splitEntries
+                        let entryTotal = entries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                        var remaining = item.subtotal
+                        for (i, entry) in entries.enumerated() {
+                            let ratio = entryTotal > 0 ? entry.amountInMain / entryTotal : (Decimal(1) / Decimal(entries.count))
+                            let share: Decimal
+                            if i == entries.count - 1 {
+                                share = remaining
+                            } else {
+                                let rounded = NSDecimalNumber(decimal: item.subtotal * ratio).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                share = rounded
+                                remaining -= rounded
+                            }
+                            if share > 0 {
+                                let qtyShare = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                                currencyDict[currencyCode]!.append((method: entry.method, quantity: qtyShare, subtotal: share))
+                            }
+                        }
                     } else {
                         let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                         if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
@@ -319,21 +319,26 @@ struct TotalsView: View {
                 totalUnits += item.quantity
                 
                 if let transaction = allTransactions.first(where: { $0.lineItems.contains(where: { $0.id == item.id }) }) {
-                    if transaction.isSplit,
-                       let a1 = transaction.splitAmount1, let a2 = transaction.splitAmount2,
-                       let splitMethod = transaction.splitMethod {
-                        let total = a1 + a2
-                        let ratio1 = total > 0 ? a1 / total : Decimal(0.5)
-                        let ratio2 = 1 - ratio1
-                        let sub1 = NSDecimalNumber(decimal: item.subtotal * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let sub2 = item.subtotal - sub1
-                        let qty1 = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio1).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
-                        let qty2 = Decimal(item.quantity) - qty1
-                        let methodName1 = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
-                        let methodName2 = paymentMethodName(PaymentMethod(rawValue: splitMethod) ?? .cash, icon: transaction.splitMethodIcon)
-                        if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
-                        currencyDict[currencyCode]!.append((method: methodName1, quantity: qty1, subtotal: sub1))
-                        if sub2 > 0 { currencyDict[currencyCode]!.append((method: methodName2, quantity: qty2, subtotal: sub2)) }
+                    if transaction.isNWaySplit {
+                        let entries = transaction.splitEntries
+                        let entryTotal = entries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                        var remaining = item.subtotal
+                        for (i, entry) in entries.enumerated() {
+                            let ratio = entryTotal > 0 ? entry.amountInMain / entryTotal : (Decimal(1) / Decimal(entries.count))
+                            let share: Decimal
+                            if i == entries.count - 1 {
+                                share = remaining
+                            } else {
+                                let rounded = NSDecimalNumber(decimal: item.subtotal * ratio).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                share = rounded
+                                remaining -= rounded
+                            }
+                            if share > 0 {
+                                let qtyShare = NSDecimalNumber(decimal: Decimal(item.quantity) * ratio).rounding(accordingToBehavior: NSDecimalNumberHandler(roundingMode: .plain, scale: 2, raiseOnExactness: false, raiseOnOverflow: false, raiseOnUnderflow: false, raiseOnDivideByZero: false)).decimalValue
+                                if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
+                                currencyDict[currencyCode]!.append((method: entry.method, quantity: qtyShare, subtotal: share))
+                            }
+                        }
                     } else {
                         let methodName = paymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
                         if currencyDict[currencyCode] == nil { currencyDict[currencyCode] = [] }
