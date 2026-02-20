@@ -103,6 +103,7 @@ struct SplitPaySheet: View {
             return SplitEntry(
                 method: entry.method.name,
                 methodIcon: entry.method.icon,
+                colorHex: entry.method.colorHex,
                 amountInMain: aInMain,
                 chargeAmount: rawVal,
                 currencyCode: currency.code
@@ -156,7 +157,15 @@ struct SplitPaySheet: View {
                             availableCurrencies: availableCurrencies,
                             mainCurrencyCode: mainCurrencyCode,
                             canDuplicate: canDuplicate(entry),
-                            isCurrencyEnabled: { entry.method.enabledCurrencies.contains($0.id) },
+                            isCurrencyEnabled: { currency in
+                                // Empty set → method accepts ALL currencies
+                                if entry.method.enabledCurrencies.isEmpty { return true }
+                                // Primary: UUID match (normal case)
+                                if entry.method.enabledCurrencies.contains(currency.id) { return true }
+                                // Fallback: code-based match (in case UUIDs are stale)
+                                let matchedId = availableCurrencies.first(where: { $0.code == currency.code })?.id
+                                return matchedId.map { entry.method.enabledCurrencies.contains($0) } ?? false
+                            },
                             convert: convert,
                             focusedId: $focusedRowId,
                             onDoubleTapIcon: { insertRow(after: entry) }

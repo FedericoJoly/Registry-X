@@ -167,8 +167,9 @@ final class Category {
 /// One leg of a split transaction. Stored as JSON in `Transaction.splitEntriesJSON`.
 struct SplitEntry: Codable, Identifiable {
     var id: UUID = UUID()
-    var method: String           // PaymentMethod.rawValue
+    var method: String           // PaymentMethod.rawValue or display name
     var methodIcon: String       // SF Symbol name
+    var colorHex: String         // background color hex for the method icon
     var amountInMain: Decimal    // share in the event main currency
     var chargeAmount: Decimal    // amount in chargeCode (the currency the customer pays in)
     var currencyCode: String     // the charge currency code
@@ -269,8 +270,8 @@ final class Transaction {
                   let c1 = splitCurrencyCode1, let c2 = splitCurrencyCode2 {
             // Migrate legacy 2-slot call into new format
             let icon1 = paymentMethodIcon ?? "creditcard"
-            let e1 = SplitEntry(method: paymentMethod.rawValue, methodIcon: icon1, amountInMain: a1, chargeAmount: a1, currencyCode: c1)
-            let e2 = SplitEntry(method: m2, methodIcon: splitMethodIcon ?? "banknote", amountInMain: a2, chargeAmount: a2, currencyCode: c2)
+            let e1 = SplitEntry(method: paymentMethod.rawValue, methodIcon: icon1, colorHex: "", amountInMain: a1, chargeAmount: a1, currencyCode: c1)
+            let e2 = SplitEntry(method: m2, methodIcon: splitMethodIcon ?? "banknote", colorHex: "", amountInMain: a2, chargeAmount: a2, currencyCode: c2)
             if let data = try? JSONEncoder().encode([e1, e2]),
                let str = String(data: data, encoding: .utf8) {
                 self.splitEntriesJSON = str

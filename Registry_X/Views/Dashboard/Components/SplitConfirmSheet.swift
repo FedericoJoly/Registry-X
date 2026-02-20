@@ -94,7 +94,7 @@ struct SplitConfirmSheet: View {
         HStack(spacing: 16) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.blue)
+                    .fill(Color(hex: entry.colorHex))
                     .frame(width: 44, height: 44)
                 Image(systemName: entry.methodIcon)
                     .font(.title3)

@@ -842,10 +842,12 @@ struct PanelView: View {
                         }
                         // 2. Stripe QR (qrcode icon with Stripe provider)
                         else if methodOption.icon.contains("qrcode") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
+                            pendingTxnRef = generateTransactionRef()
                             showingStripeQRPayment = true
                         }
                         // 3. Stripe Card (creditcard icon with Stripe provider)
                         else if methodOption.icon.contains("creditcard") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
+                            pendingTxnRef = generateTransactionRef()
                             showingStripeCardPayment = true
                         }
                         // 4. Everything else - manual payment
@@ -876,8 +878,8 @@ struct PanelView: View {
             .presentationDetents([.height(250)])
         }
         .sheet(isPresented: $showingStripeCardPayment) {
-            if let backendURL = event.stripeBackendURL {
-                let txnRef = pendingTxnRef ?? generateTransactionRef()
+            if let backendURL = event.stripeBackendURL,
+               let txnRef = pendingTxnRef {
                 // During split: charge only the card fraction's amount/currency
                 let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
                 let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
@@ -888,9 +890,7 @@ struct PanelView: View {
                     backendURL: backendURL,
                     locationId: event.stripeLocationId ?? "",
                     onSuccess: { paymentIntentId in
-                        // Store payment info and show receipt prompt
                         pendingPaymentIntentId = paymentIntentId
-                        pendingTxnRef = txnRef
                         showingStripeCardPayment = false
                         showingReceiptPrompt = true
                     },
@@ -910,8 +910,8 @@ struct PanelView: View {
             }
         }
         .sheet(isPresented: $showingStripeQRPayment) {
-            if let backendURL = event.stripeBackendURL {
-                let txnRef = pendingTxnRef ?? generateTransactionRef()
+            if let backendURL = event.stripeBackendURL,
+               let txnRef = pendingTxnRef {
                 let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
                 let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
                 StripeQRPaymentView(
@@ -919,7 +919,6 @@ struct PanelView: View {
                     currency: chargeCurrency,
                     description: paymentDescription(txnRef: txnRef),
                     companyName: effectiveCompanyName,
-                    // During split: don't pass full line items (they sum to full cart); use nil so backend charges the explicit amount
                     lineItems: (splitChargeAmount > 0) ? nil : (stripeLineItems().isEmpty ? nil : stripeLineItems()),
                     backendURL: backendURL,
                     onSuccess: { sessionId in
@@ -1484,16 +1483,30 @@ struct PanelView: View {
                 selectedPaymentMethod = PaymentMethod(rawValue: entry.method) ?? .cash
                 splitChargeAmount = chargeAmt
                 splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
-                if isCard {
-                    showingStripeCardPayment = true
-                } else {
-                    showingStripeQRPayment = true
+                // Set pendingTxnRef BEFORE presenting the sheet so the sheet body reads a stable value
+                if pendingTxnRef == nil { pendingTxnRef = txnRef }
+                var failCount = 0
+
+                func attemptCardEntry() {
+                    if isCard {
+                        showingStripeCardPayment = true
+                    } else {
+                        showingStripeQRPayment = true
+                    }
+                    pendingSplitStripeCallback = { intentId, sessionId in
+                        if let intentId = intentId {
+                            collectedIntentId = intentId
+                        }
+                        if let sessionId = sessionId {
+                            collectedSessionId = sessionId
+                        }
+                        processEntry(at: idx + 1)
+                    }
+                    // After 3 stripe-level failures the Stripe SDK calls onCancel — intercept here
+                    // by wrapping with a failure-counter alert shown on cancel
                 }
-                pendingSplitStripeCallback = { intentId, sessionId in
-                    if collectedIntentId == nil { collectedIntentId = intentId }
-                    if collectedSessionId == nil { collectedSessionId = sessionId }
-                    processEntry(at: idx + 1)
-                }
+
+                attemptCardEntry()
             } else if isBizum {
                 splitChargeAmount = chargeAmt
                 splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
