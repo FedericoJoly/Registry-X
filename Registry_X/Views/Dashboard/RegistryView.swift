@@ -769,55 +769,74 @@ struct TransactionCard: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // HEADER ROW: Time + Icon(s) | Amount | Delete
-            // For split TXs both methods appear on the same line: [time] [icon1] [a1] [icon2] [a2] [total] [trash]
+        VStack(alignment: .leading, spacing: 0) {
+
+            // ── HEADER: Time · TX ID · Total ─────────────────────────────────
             HStack(alignment: .center) {
                 Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
                     .font(.headline)
 
-                if transaction.isNWaySplit {
-                    ForEach(Array(transaction.splitEntries.enumerated()), id: \.offset) { _, entry in
-                        Image(systemName: entry.methodIcon)
-                            .foregroundStyle(splitMethodIconColor(icon: entry.methodIcon))
-                        Text(currencySymbol(for: entry.currencyCode) + splitDisplayAmount(entry.amountInMain, chargeCode: entry.currencyCode).formatted(.number.precision(.fractionLength(2))))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                if let txnRef = transaction.transactionRef {
+                    Text("·")
+                        .foregroundStyle(.quaternary)
+                    Text(txnRef)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 } else {
-                    Image(systemName: paymentIcon)
-                        .foregroundStyle(paymentIconColor)
+                    Text("·")
+                        .foregroundStyle(.quaternary)
+                    Text("\(transaction.lineItems.count) item\(transaction.lineItems.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 Text(currencySymbol(for: transaction.currencyCode) + transaction.totalAmount.formatted(.number.precision(.fractionLength(2))))
-                    .font(.headline)
-
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .foregroundStyle(.red)
-                        .font(.title3)
-                        .imageScale(.small)
-                }
-                .buttonStyle(.borderless)
-                .disabled(event.isLocked)
+                    .font(.headline.weight(.semibold))
             }
-            
-            // META ROW: Transaction ID + Category | Savings
-            HStack {
-                HStack(spacing: 4) {
-                    if let txnRef = transaction.transactionRef {
-                        Text(txnRef)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("\(transaction.lineItems.count) item\(transaction.lineItems.count == 1 ? "" : "s")")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+
+            Divider().padding(.horizontal, 14)
+
+            // ── PAYMENT METHOD ROW(S) ─────────────────────────────────────────
+            if transaction.isNWaySplit {
+                // Wrap if many entries
+                let entries = transaction.splitEntries
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 14) {
+                        ForEach(Array(entries.enumerated()), id: \.offset) { idx, entry in
+                            HStack(spacing: 5) {
+                                Image(systemName: entry.methodIcon)
+                                    .font(.subheadline)
+                                    .foregroundStyle(splitMethodIconColor(icon: entry.methodIcon))
+                                Text(currencySymbol(for: entry.currencyCode) + splitDisplayAmount(entry.amountInMain, chargeCode: entry.currencyCode).formatted(.number.precision(.fractionLength(2))))
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                            }
+                            if idx < entries.count - 1 {
+                                Text("+")
+                                    .font(.caption)
+                                    .foregroundStyle(.quaternary)
+                            }
+                        }
                     }
-                    
-                    // Category badge (10% darker, only if categories enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: paymentIcon)
+                        .font(.subheadline)
+                        .foregroundStyle(paymentIconColor)
+                    Text(paymentMethodOption?.name ?? transaction.paymentMethod.rawValue.capitalized)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                    // Category badge
                     if event.areCategoriesEnabled,
                        let firstCategory = transaction.lineItems.first?.product?.category {
                         let categoryColor = Color(hex: firstCategory.hexColor).normalizeForRegistry()
@@ -830,116 +849,136 @@ struct TransactionCard: View {
                             .cornerRadius(4)
                     }
                 }
-                
-                Spacer()
-                
-                if totalSavings > 0 {
-                    Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2))))
-                        .font(.subheadline)
-                        .foregroundStyle(.green)
-                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
             }
-            
-            Divider()
-            
-            // LINE ITEMS
+
+            Divider().padding(.horizontal, 14)
+
+            // ── LINE ITEMS ────────────────────────────────────────────────────
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(transaction.lineItems) { item in
                     HStack {
-                        // Check if product is deleted
                         let isDeleted = !event.products.contains(where: { $0.name == item.productName && !$0.isDeleted })
-                        // ALWAYS look up by name to avoid invalidated SwiftData references  
                         let product = event.products.first(where: { $0.name == item.productName && !$0.isDeleted })
                         let categoryColor = product?.category.flatMap { Color(hex: $0.hexColor) } ?? .gray
-                        
+
                         Circle()
                             .fill(categoryColor)
-                            .frame(width: 10, height: 10)
-                        
+                            .frame(width: 8, height: 8)
+
                         Text(item.productName)
                             .font(.subheadline)
                             .foregroundStyle(isDeleted ? .red : .primary)
                             .lineLimit(1)
-                        
+
                         Spacer()
-                        
+
                         Text("×\(item.quantity)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .padding(.trailing, 10)
-                        
+                            .padding(.trailing, 8)
+
                         let unitPrice = item.quantity > 0 ? item.subtotal / Decimal(item.quantity) : item.subtotal
                         Text(currencySymbol(for: transaction.currencyCode) + unitPrice.formatted(.number.precision(.fractionLength(2))))
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                            .frame(minWidth: 70, alignment: .trailing)
+                            .frame(minWidth: 60, alignment: .trailing)
                     }
                 }
             }
-            
-            // NOTES AND EMAIL SECTION
-            if (transaction.note != nil && !transaction.note!.isEmpty) || (transaction.receiptEmail != nil && !transaction.receiptEmail!.isEmpty) {
-                Divider()
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    // Display note with pencil icon
-                    if let note = transaction.note, !note.isEmpty {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "pencil")
-                                .foregroundStyle(.secondary)
-                                .font(.subheadline)
-                            
-                            if isEditingNote {
-                                // Editing mode with TextField
-                                TextField("Note", text: $editedNoteText, axis: .vertical)
-                                    .font(.subheadline)
-                                    .textFieldStyle(.plain)
-                                    .lineLimit(1...5)
-                                
-                                // Tick button to save
-                                Button(action: saveNote) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                        .font(.title3)
-                                }
-                                .buttonStyle(.borderless)
-                            } else {
-                                // Display mode
-                                Text(note)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .onTapGesture {
-                                        copyToClipboard(note)
-                                    }
-                                    .onLongPressGesture {
-                                        startEditingNote()
-                                    }
-                            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            // ── NOTE ──────────────────────────────────────────────────────────
+            if let note = transaction.note, !note.isEmpty {
+                Divider().padding(.horizontal, 14)
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(.secondary)
+                        .font(.footnote)
+                    if isEditingNote {
+                        TextField("Note", text: $editedNoteText, axis: .vertical)
+                            .font(.subheadline)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...5)
+                        Button(action: saveNote) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
                         }
-                    }
-                    
-                    // Display receipt email with receipt icon
-                    if let email = transaction.receiptEmail, !email.isEmpty {
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "receipt")
-                                .foregroundStyle(.blue)
-                                .font(.subheadline)
-                            
-                            Text(email)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .onTapGesture {
-                                    copyToClipboard(email)
-                                }
-                        }
+                        .buttonStyle(.borderless)
+                    } else {
+                        Text(note)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .onTapGesture { copyToClipboard(note) }
+                            .onLongPressGesture { startEditingNote() }
                     }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
             }
+
+            // ── RECEIPT EMAIL ─────────────────────────────────────────────────
+            if let email = transaction.receiptEmail, !email.isEmpty {
+                Divider().padding(.horizontal, 14)
+                HStack(spacing: 8) {
+                    Image(systemName: "receipt")
+                        .foregroundStyle(.blue)
+                        .font(.footnote)
+                    Text(email)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onTapGesture { copyToClipboard(email) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            }
+
+            Divider().padding(.horizontal, 14)
+
+            // ── FOOTER: Savings · Actions ─────────────────────────────────────
+            HStack(alignment: .center, spacing: 4) {
+                if totalSavings > 0 {
+                    Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2))))
+                        .font(.subheadline)
+                        .foregroundStyle(.green)
+                }
+
+                Spacer()
+
+                // Send receipt (disabled — future)
+                Button(action: {}) {
+                    Image(systemName: "envelope")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .disabled(true)
+                .opacity(0.4)
+
+                // Refund (disabled — future)
+                Button(action: {}) {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .disabled(true)
+                .opacity(0.4)
+
+                // Delete
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
+                .disabled(event.isLocked)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
         }
-        .padding()
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
@@ -950,7 +989,7 @@ struct TransactionCard: View {
                         HStack(spacing: 8) {
                             Image(systemName: "doc.on.doc.fill")
                                 .foregroundStyle(.green)
-                            Text("Note copied")
+                            Text("Copied")
                                 .font(.subheadline.weight(.semibold))
                         }
                         .padding(.horizontal, 16)
