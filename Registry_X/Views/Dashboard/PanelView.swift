@@ -6,6 +6,14 @@ enum OverrideTarget: Equatable {
     case categorySubtotal(categoryId: UUID)
 }
 
+/// Represents one button option in the split card failure action sheet.
+struct SplitFailureAction: Identifiable {
+    let id = UUID()
+    let title: String
+    let isDestructive: Bool
+    let action: () -> Void
+}
+
 struct PanelView: View {
     @Bindable var event: Event
     var onQuit: (() -> Void)?
@@ -64,11 +72,16 @@ struct PanelView: View {
     // Callbacks for when a Stripe/Bizum result completes during a split payment
     @State private var pendingSplitStripeCallback: ((String?, String?) -> Void)? = nil
     @State private var pendingBizumSplitCallback: ((Bool) -> Void)? = nil
+    // Intercepts card/QR cancel during split (nil = non-split context)
+    @State private var pendingSplitCardCancelCallback: (() -> Void)? = nil
     // Amount / currency to charge via Stripe or Bizum for the split fraction (not the full cart total)
     @State private var splitChargeAmount: Decimal = 0
     @State private var splitChargeCurrency: String = ""
     // Callback to finalise split TX registration after the manual receipt step
     @State private var pendingSplitRegisterCallback: ((String?) -> Void)? = nil
+    // Split failure alert (shown after 3 consecutive card failures)
+    @State private var showingSplitCardFailureAlert = false
+    @State private var splitFailureAlertActions: [SplitFailureAction] = []
     
     init(event: Event, onQuit: (() -> Void)? = nil) {
         self.event = event
@@ -880,7 +893,6 @@ struct PanelView: View {
         .sheet(isPresented: $showingStripeCardPayment) {
             if let backendURL = event.stripeBackendURL,
                let txnRef = pendingTxnRef {
-                // During split: charge only the card fraction's amount/currency
                 let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
                 let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
                 StripeTapToPayView(
@@ -891,13 +903,31 @@ struct PanelView: View {
                     locationId: event.stripeLocationId ?? "",
                     onSuccess: { paymentIntentId in
                         pendingPaymentIntentId = paymentIntentId
+                        pendingSplitCardCancelCallback = nil
                         showingStripeCardPayment = false
-                        showingReceiptPrompt = true
+                        if let splitCB = pendingSplitStripeCallback {
+                            // Split context: hand result to the sequential processor
+                            pendingSplitStripeCallback = nil
+                            splitChargeAmount = 0
+                            splitChargeCurrency = ""
+                            splitCB(paymentIntentId, nil)
+                        } else {
+                            showingReceiptPrompt = true
+                        }
                     },
                     onCancel: {
                         showingStripeCardPayment = false
-                        splitChargeAmount = 0
-                        splitChargeCurrency = ""
+                        if let splitCancel = pendingSplitCardCancelCallback {
+                            // Split context: let the retry/void logic decide what to do
+                            pendingSplitCardCancelCallback = nil
+                            splitChargeAmount = 0
+                            splitChargeCurrency = ""
+                            splitCancel()
+                        } else {
+                            // Normal (non-split) cancel
+                            splitChargeAmount = 0
+                            splitChargeCurrency = ""
+                        }
                     }
                 )
             }
@@ -924,6 +954,7 @@ struct PanelView: View {
                     onSuccess: { sessionId in
                         if let splitCB = pendingSplitStripeCallback {
                             pendingSplitStripeCallback = nil
+                            pendingSplitCardCancelCallback = nil
                             splitChargeAmount = 0
                             splitChargeCurrency = ""
                             showingStripeQRPayment = false
@@ -934,8 +965,15 @@ struct PanelView: View {
                     },
                     onCancel: {
                         showingStripeQRPayment = false
-                        splitChargeAmount = 0
-                        splitChargeCurrency = ""
+                        if let splitCancel = pendingSplitCardCancelCallback {
+                            pendingSplitCardCancelCallback = nil
+                            splitChargeAmount = 0
+                            splitChargeCurrency = ""
+                            splitCancel()
+                        } else {
+                            splitChargeAmount = 0
+                            splitChargeCurrency = ""
+                        }
                     }
                 )
             }
@@ -1049,6 +1087,17 @@ struct PanelView: View {
             }
         } message: {
             Text("Would the customer like an email receipt?")
+        }
+        // ── Split card failure alert (shown after 3 consecutive TTP/QR failures) ────
+        .alert("Payment Failed", isPresented: $showingSplitCardFailureAlert) {
+            ForEach(splitFailureAlertActions) { action in
+                Button(action.title, role: action.isDestructive ? .destructive : nil) {
+                    action.action()
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This card payment failed 3 times. How would you like to proceed?")
         }
         .sheet(isPresented: $showingManualReceiptEmailSheet) {
             SimpleEmailSheet(
@@ -1483,27 +1532,68 @@ struct PanelView: View {
                 selectedPaymentMethod = PaymentMethod(rawValue: entry.method) ?? .cash
                 splitChargeAmount = chargeAmt
                 splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
-                // Set pendingTxnRef BEFORE presenting the sheet so the sheet body reads a stable value
                 if pendingTxnRef == nil { pendingTxnRef = txnRef }
                 var failCount = 0
+                let maxRetries = 3
+
+                func voidAndReset() {
+                    let intentIds = [collectedIntentId, collectedSessionId].compactMap { $0 }
+                    let backendURL = event.stripeBackendURL ?? ""
+                    if !intentIds.isEmpty && !backendURL.isEmpty {
+                        let service = StripeNetworkService(backendURL: backendURL)
+                        Task {
+                            for intentId in intentIds {
+                                try? await service.refundPaymentIntent(intentId: intentId)
+                            }
+                        }
+                    }
+                    pendingSplitEntries = []
+                    pendingSplitStripeCallback = nil
+                    pendingSplitCardCancelCallback = nil
+                    pendingTxnRef = nil
+                    splitChargeAmount = 0
+                    splitChargeCurrency = ""
+                }
 
                 func attemptCardEntry() {
+                    pendingSplitStripeCallback = { intentId, sessionId in
+                        if let intentId { collectedIntentId = intentId }
+                        if let sessionId { collectedSessionId = sessionId }
+                        pendingSplitCardCancelCallback = nil
+                        processEntry(at: idx + 1)
+                    }
+                    pendingSplitCardCancelCallback = {
+                        failCount += 1
+                        if failCount >= maxRetries {
+                            let sym = event.currencies.first(where: { $0.code == entry.currencyCode })?.symbol ?? entry.currencyCode
+                            let amtStr = sym + chargeAmt.formatted(.number.precision(.fractionLength(2)))
+                            splitFailureAlertActions = [
+                                SplitFailureAction(title: "Retry", isDestructive: false) {
+                                    failCount = 0
+                                    splitChargeAmount = chargeAmt
+                                    splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
+                                    attemptCardEntry()
+                                },
+                                SplitFailureAction(title: "Accept \(amtStr) as Cash", isDestructive: false) {
+                                    pendingSplitCardCancelCallback = nil
+                                    processEntry(at: idx + 1)
+                                },
+                                SplitFailureAction(title: "Void & Refund Previous Payments", isDestructive: true) {
+                                    voidAndReset()
+                                }
+                            ]
+                            showingSplitCardFailureAlert = true
+                        } else {
+                            splitChargeAmount = chargeAmt
+                            splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
+                            attemptCardEntry()
+                        }
+                    }
                     if isCard {
                         showingStripeCardPayment = true
                     } else {
                         showingStripeQRPayment = true
                     }
-                    pendingSplitStripeCallback = { intentId, sessionId in
-                        if let intentId = intentId {
-                            collectedIntentId = intentId
-                        }
-                        if let sessionId = sessionId {
-                            collectedSessionId = sessionId
-                        }
-                        processEntry(at: idx + 1)
-                    }
-                    // After 3 stripe-level failures the Stripe SDK calls onCancel — intercept here
-                    // by wrapping with a failure-counter alert shown on cancel
                 }
 
                 attemptCardEntry()

@@ -285,4 +285,38 @@ class StripeNetworkService {
         
         return true
     }
+
+    // MARK: - Refund Payment Intent
+
+    /// Issues a full refund for a captured payment intent.
+    /// Called by the split-payment void flow when a later card in the sequence fails unrecoverably.
+    @discardableResult
+    func refundPaymentIntent(intentId: String) async throws -> Bool {
+        guard let url = URL(string: "\(backendURL)/refund-payment-intent") else {
+            throw StripeNetworkError.invalidURL
+        }
+
+        let requestBody: [String: Any] = ["paymentIntentId": intentId]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw StripeNetworkError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = errorDict["error"] as? String {
+                throw StripeNetworkError.serverError(error)
+            }
+            throw StripeNetworkError.serverError("HTTP \(httpResponse.statusCode)")
+        }
+
+        return true
+    }
 }
