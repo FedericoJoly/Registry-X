@@ -311,7 +311,9 @@ struct SplitMethodRow: View {
                             .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.4)))
                             .cornerRadius(6)
                     }
-                    .disabled(!enabled)
+                    // .plain gives each button its own touch target inside the List row.
+                    // Without this, SwiftUI merges all buttons into the row's tap area.
+                    .buttonStyle(.plain)
                 }
             }
         }
