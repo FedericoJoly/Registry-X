@@ -149,33 +149,38 @@ struct SplitPaySheet: View {
 
                 Divider()
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach($entries) { $entry in
-                            SplitMethodRow(
-                                entry: $entry,
-                                availableCurrencies: availableCurrencies,
-                                mainCurrencyCode: mainCurrencyCode,
-                                canDuplicate: canDuplicate(entry),
-                                isCurrencyEnabled: { entry.method.enabledCurrencies.contains($0.id) },
-                                convert: convert,
-                                focusedId: $focusedRowId,
-                                onDoubleTapIcon: { insertRow(after: entry) }
-                            )
-                            Divider().padding(.leading, 20)
-                        }
-                        .onDelete { indexSet in
-                            // Only allow deleting user-added rows
-                            let toRemove = indexSet.filter { entries[$0].isUserAdded }
-                            withAnimation {
-                                entries.remove(atOffsets: IndexSet(toRemove))
+                List {
+                    ForEach($entries) { $entry in
+                        SplitMethodRow(
+                            entry: $entry,
+                            availableCurrencies: availableCurrencies,
+                            mainCurrencyCode: mainCurrencyCode,
+                            canDuplicate: canDuplicate(entry),
+                            isCurrencyEnabled: { entry.method.enabledCurrencies.contains($0.id) },
+                            convert: convert,
+                            focusedId: $focusedRowId,
+                            onDoubleTapIcon: { insertRow(after: entry) }
+                        )
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color(UIColor.systemBackground))
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            if entry.isUserAdded {
+                                Button(role: .destructive) {
+                                    withAnimation {
+                                        entries.removeAll { $0.id == entry.id }
+                                    }
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
                             }
                         }
                     }
-                    .background(Color(UIColor.systemBackground))
-                    .cornerRadius(12)
-                    .padding()
                 }
+                .listStyle(.plain)
+                .background(Color(UIColor.systemBackground))
+                .cornerRadius(12)
+                .padding()
             }
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Split Payment")

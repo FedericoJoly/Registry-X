@@ -776,18 +776,16 @@ struct TransactionCard: View {
                 Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
                     .font(.headline)
 
+                Spacer()
+
                 if let txnRef = transaction.transactionRef {
-                    Text("·")
-                        .foregroundStyle(.quaternary)
                     Text(txnRef)
-                        .font(.caption.weight(.medium))
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text("·")
-                        .foregroundStyle(.quaternary)
                     Text("\(transaction.lineItems.count) item\(transaction.lineItems.count == 1 ? "" : "s")")
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
