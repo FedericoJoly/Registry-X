@@ -302,6 +302,35 @@ app.post('/send-receipt-email', async (req, res) => {
   }
 });
 
+// Refund a payment intent — used by the split payment void flow
+// when a later card fails and previously captured intents must be unwound
+app.post('/refund-payment-intent', async (req, res) => {
+  try {
+    const { paymentIntentId } = req.body;
+
+    if (!paymentIntentId) {
+      return res.status(400).json({ error: 'paymentIntentId is required' });
+    }
+
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+    });
+
+    console.log(`Refund created for intent ${paymentIntentId}: ${refund.id} (${refund.status})`);
+
+    res.json({
+      success: true,
+      refundId: refund.id,
+      status: refund.status,
+      amount: refund.amount,
+      currency: refund.currency,
+    });
+  } catch (error) {
+    console.error('Error creating refund:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Webhook endpoint for Stripe events (optional but recommended)
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
