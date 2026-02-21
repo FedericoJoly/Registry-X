@@ -23,6 +23,7 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     private var paymentDescription: String
     private var locationId: String
     private var paymentIntentId: String?
+    private var capturedLast4: String? = nil   // captured from collectPaymentMethod before confirm
     private var onSuccess: (String, String?) -> Void  // (intentId, cardLast4)
     private var onCancel: () -> Void
     private var discoveredReader: Reader?
@@ -314,6 +315,11 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                         
                         guard let collectedIntent = collectResult else { return }
                         
+                        // ── Capture last4 here: paymentMethod IS populated on collectedIntent
+                        // (Stripe Terminal SDK clears it after confirmPaymentIntent, so we must
+                        // read it NOW before confirmation.)
+                        self.capturedLast4 = collectedIntent.paymentMethod?.cardPresent?.last4
+                        
                         // Update to processing
                         self.paymentStatus = .processing
                         
@@ -336,14 +342,12 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                     return
                                 }
                                 
-                                // Success! Extract card last 4 from terminal response.
-                                // SCPPaymentMethod.h confirms: .cardPresent is SCPCardPresentDetails?
-                                // SCPCardPresentDetails.last4 is always populated after a successful tap.
-                                let last4: String? = confirmResult?.paymentMethod?.cardPresent?.last4
+                                // Success! Use last4 captured during collectPaymentMethod (before
+                                // confirm), since SDK clears paymentMethod after confirmation.
                                 self.paymentStatus = .success
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 if let intentId = self.paymentIntentId {
-                                    self.onSuccess(intentId, last4)
+                                    self.onSuccess(intentId, self.capturedLast4)
                                     self.cleanup()
                                 }
                             }
