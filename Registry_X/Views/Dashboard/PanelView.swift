@@ -14,6 +14,28 @@ struct SplitFailureAction: Identifiable {
     let action: () -> Void
 }
 
+/// Token passed to .sheet(item:) for Stripe Tap-to-Pay sessions.
+/// A new UUID is generated each time so SwiftUI always creates a fresh sheet instance,
+/// even when chaining sequential payments (avoids the isPresented toggle race).
+struct StripeCardPaymentJob: Identifiable {
+    let id = UUID()
+    let amount: Decimal
+    let currency: String
+    let description: String
+    let backendURL: String
+    let locationId: String
+}
+
+/// Token passed to .sheet(item:) for Stripe QR / Checkout sessions.
+struct StripeQRPaymentJob: Identifiable {
+    let id = UUID()
+    let amount: Decimal
+    let currency: String
+    let description: String
+    let backendURL: String
+    let txnRef: String
+}
+
 struct PanelView: View {
     @Bindable var event: Event
     var onQuit: (() -> Void)?
@@ -34,11 +56,13 @@ struct PanelView: View {
     @State private var showingPaymentMethodSheet = false
     @State private var selectedPaymentMethod: PaymentMethod = .cash
     
-    // Stripe Payment State
-    @State private var showingStripeCardPayment = false
+    // Stripe Payment State — item-based sheets so each payment gets a fresh UUID identity
+    @State private var showingStripeCardPayment = false  // legacy close signal only
+    @State private var activeCardJob: StripeCardPaymentJob? = nil
     @State private var showingTapToPayEducation = false
     @StateObject private var tapToPayEducationManager = TapToPayEducationManager.shared
-    @State private var showingStripeQRPayment = false
+    @State private var showingStripeQRPayment = false    // legacy close signal only
+    @State private var activeQRJob: StripeQRPaymentJob? = nil
     @State private var showingBizumPayment = false
     @State private var pendingTransaction: Transaction?
     @State private var selectedMethodOption: PaymentMethodOption?
@@ -862,13 +886,31 @@ struct PanelView: View {
                         }
                         // 2. Stripe QR (qrcode icon with Stripe provider)
                         else if methodOption.icon.contains("qrcode") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
-                            pendingTxnRef = generateTransactionRef()
-                            showingStripeQRPayment = true
+                            let txnRef = generateTransactionRef()
+                            pendingTxnRef = txnRef
+                            if let backendURL = event.stripeBackendURL {
+                                activeQRJob = StripeQRPaymentJob(
+                                    amount: derivedTotal,
+                                    currency: currentCurrencyCode,
+                                    description: paymentDescription(txnRef: txnRef),
+                                    backendURL: backendURL,
+                                    txnRef: txnRef
+                                )
+                            }
                         }
                         // 3. Stripe Card (creditcard icon with Stripe provider)
                         else if methodOption.icon.contains("creditcard") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
-                            pendingTxnRef = generateTransactionRef()
-                            showingStripeCardPayment = true
+                            let txnRef = generateTransactionRef()
+                            pendingTxnRef = txnRef
+                            if let backendURL = event.stripeBackendURL {
+                                activeCardJob = StripeCardPaymentJob(
+                                    amount: derivedTotal,
+                                    currency: currentCurrencyCode,
+                                    description: paymentDescription(txnRef: txnRef),
+                                    backendURL: backendURL,
+                                    locationId: event.stripeLocationId ?? ""
+                                )
+                            }
                         }
                         // 4. Everything else - manual payment
                         else {
@@ -897,61 +939,46 @@ struct PanelView: View {
             )
             .presentationDetents([.height(250)])
         }
-        .sheet(isPresented: $showingStripeCardPayment, onDismiss: {
-            // Handles ALL sheet dismissal sources: success, SDK decline, toolbar Cancel, swipe-to-dismiss.
-            // ── 1. Success: chain next split entry after animation fully settles ─
+        .sheet(item: $activeCardJob, onDismiss: {
+            // Handles ALL dismiss sources (success, SDK decline, toolbar Cancel, swipe).
+            // ── 1. Success: chain next split entry ─────────────────────────────────────
             if let result = pendingNextSplitEntryResult {
                 pendingNextSplitEntryResult = nil
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
-                // Delay is essential: calling cb() here sets showingStripeCardPayment=true
-                // inside onDismiss of the same sheet — iOS needs a full runloop cycle to
-                // finish committing the dismiss before it can accept a new presentation.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    cb?(result.intentId, result.sessionId)
-                }
-                return  // don't fall through to cancel branch
+                cb?(result.intentId, result.sessionId)   // safe: new job UUID = fresh sheet
+                return
             }
-            // ── 2. Cancel (any source): fire split recovery callback ──────────
-            // Success nils pendingSplitCardCancelCallback before dismissing,
-            // so this only runs on genuine cancels.
+            // ── 2. Cancel (any source): fire split recovery ─────────────────────────
             if let splitCancel = pendingSplitCardCancelCallback {
                 pendingSplitCardCancelCallback = nil
                 splitChargeAmount = 0
                 splitChargeCurrency = ""
                 splitCancel()
             }
-        }) {
-            if let backendURL = event.stripeBackendURL,
-               let txnRef = pendingTxnRef {
-                let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
-                let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
-                StripeTapToPayView(
-                    amount: chargeAmount,
-                    currency: chargeCurrency,
-                    description: paymentDescription(txnRef: txnRef),
-                    backendURL: backendURL,
-                    locationId: event.stripeLocationId ?? "",
-                    onSuccess: { paymentIntentId in
-                        pendingPaymentIntentId = paymentIntentId
-                        // Nil cancel callback BEFORE dismissing — tells onDismiss this was a success
-                        pendingSplitCardCancelCallback = nil
-                        splitChargeAmount = 0
-                        splitChargeCurrency = ""
-                        if pendingSplitStripeCallback != nil {
-                            pendingNextSplitEntryResult = (intentId: paymentIntentId, sessionId: nil)
-                        } else {
-                            showingReceiptPrompt = true
-                        }
-                        showingStripeCardPayment = false
-                    },
-                    onCancel: {
-                        // SDK decline path only — toolbar Cancel bypasses this closure.
-                        // Both paths land in onDismiss above. Just dismiss here.
-                        showingStripeCardPayment = false
+        }) { job in
+            StripeTapToPayView(
+                amount: job.amount,
+                currency: job.currency,
+                description: job.description,
+                backendURL: job.backendURL,
+                locationId: job.locationId,
+                onSuccess: { paymentIntentId in
+                    pendingPaymentIntentId = paymentIntentId
+                    pendingSplitCardCancelCallback = nil   // tells onDismiss: success
+                    splitChargeAmount = 0
+                    splitChargeCurrency = ""
+                    if pendingSplitStripeCallback != nil {
+                        pendingNextSplitEntryResult = (intentId: paymentIntentId, sessionId: nil)
+                    } else {
+                        showingReceiptPrompt = true
                     }
-                )
-            }
+                    activeCardJob = nil
+                },
+                onCancel: {
+                    activeCardJob = nil  // onDismiss fires next and handles split cancel
+                }
+            )
         }
         .sheet(isPresented: $showingTapToPayEducation) {
             NavigationView {
@@ -960,15 +987,13 @@ struct PanelView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingStripeQRPayment, onDismiss: {
+        .sheet(item: $activeQRJob, onDismiss: {
             // ── 1. Success path ────────────────────────────────────────────────
             if let result = pendingNextSplitEntryResult {
                 pendingNextSplitEntryResult = nil
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    cb?(result.intentId, result.sessionId)
-                }
+                cb?(result.intentId, result.sessionId)
                 return
             }
             // ── 2. Cancel path (any source) ────────────────────────────────────
@@ -978,33 +1003,27 @@ struct PanelView: View {
                 splitChargeCurrency = ""
                 splitCancel()
             }
-        }) {
-            if let backendURL = event.stripeBackendURL,
-               let txnRef = pendingTxnRef {
-                let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
-                let chargeCurrency = splitChargeAmount > 0 ? splitChargeCurrency : currentCurrencyCode
-                StripeQRPaymentView(
-                    amount: chargeAmount,
-                    currency: chargeCurrency,
-                    description: paymentDescription(txnRef: txnRef),
-                    companyName: effectiveCompanyName,
-                    lineItems: (splitChargeAmount > 0) ? nil : (stripeLineItems().isEmpty ? nil : stripeLineItems()),
-                    backendURL: backendURL,
-                    onSuccess: { sessionId in
-                        pendingSplitCardCancelCallback = nil  // tells onDismiss: success
-                        if pendingSplitStripeCallback != nil {
-                            pendingNextSplitEntryResult = (intentId: nil, sessionId: sessionId)
-                        } else {
-                            processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: txnRef)
-                        }
-                        showingStripeQRPayment = false
-                    },
-                    onCancel: {
-                        // Just dismiss — onDismiss handles the split cancel callback
-                        showingStripeQRPayment = false
+        }) { job in
+            StripeQRPaymentView(
+                amount: job.amount,
+                currency: job.currency,
+                description: job.description,
+                companyName: effectiveCompanyName,
+                lineItems: (splitChargeAmount > 0) ? nil : (stripeLineItems().isEmpty ? nil : stripeLineItems()),
+                backendURL: job.backendURL,
+                onSuccess: { sessionId in
+                    pendingSplitCardCancelCallback = nil
+                    if pendingSplitStripeCallback != nil {
+                        pendingNextSplitEntryResult = (intentId: nil, sessionId: sessionId)
+                    } else {
+                        processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: job.txnRef)
                     }
-                )
-            }
+                    activeQRJob = nil
+                },
+                onCancel: {
+                    activeQRJob = nil
+                }
+            )
         }
         .sheet(isPresented: $showingBizumPayment) {
             if let phoneNumber = event.bizumPhoneNumber {
@@ -1453,8 +1472,8 @@ struct PanelView: View {
         overriddenCategoryTotals.removeAll()
         
         // Close Stripe sheets
-        showingStripeCardPayment = false
-        showingStripeQRPayment = false
+        activeCardJob = nil
+        activeQRJob = nil
         
         // Show notification banner
         withAnimation {
@@ -1681,9 +1700,25 @@ struct PanelView: View {
                         }
                     }
                     if isCard {
-                        showingStripeCardPayment = true
+                        guard let backendURL = event.stripeBackendURL else { return }
+                        let txnRefStr = pendingTxnRef ?? txnRef
+                        activeCardJob = StripeCardPaymentJob(
+                            amount: chargeAmt,
+                            currency: entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode,
+                            description: paymentDescription(txnRef: txnRefStr),
+                            backendURL: backendURL,
+                            locationId: event.stripeLocationId ?? ""
+                        )
                     } else {
-                        showingStripeQRPayment = true
+                        guard let backendURL = event.stripeBackendURL else { return }
+                        let txnRefStr = pendingTxnRef ?? txnRef
+                        activeQRJob = StripeQRPaymentJob(
+                            amount: chargeAmt,
+                            currency: entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode,
+                            description: paymentDescription(txnRef: txnRefStr),
+                            backendURL: backendURL,
+                            txnRef: txnRefStr
+                        )
                     }
                 }
 
