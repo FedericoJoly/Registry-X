@@ -898,13 +898,23 @@ struct PanelView: View {
             .presentationDetents([.height(250)])
         }
         .sheet(isPresented: $showingStripeCardPayment, onDismiss: {
-            // Fire the deferred split callback AFTER the sheet is fully gone,
-            // so the next sheet can present without a race condition.
+            // Handles ALL sheet dismissal sources: success, SDK decline, toolbar Cancel, swipe-to-dismiss.
+            // ── 1. Success: chain next split entry ────────────────────────────
             if let result = pendingNextSplitEntryResult {
                 pendingNextSplitEntryResult = nil
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
                 cb?(result.intentId, result.sessionId)
+                return  // don't fall through to cancel branch
+            }
+            // ── 2. Cancel (any source): fire split recovery callback ──────────
+            // Success nils pendingSplitCardCancelCallback before setting
+            // showingStripeCardPayment=false, so this only runs on genuine cancels.
+            if let splitCancel = pendingSplitCardCancelCallback {
+                pendingSplitCardCancelCallback = nil
+                splitChargeAmount = 0
+                splitChargeCurrency = ""
+                splitCancel()
             }
         }) {
             if let backendURL = event.stripeBackendURL,
@@ -919,29 +929,21 @@ struct PanelView: View {
                     locationId: event.stripeLocationId ?? "",
                     onSuccess: { paymentIntentId in
                         pendingPaymentIntentId = paymentIntentId
+                        // Nil cancel callback BEFORE dismissing — tells onDismiss this was a success
                         pendingSplitCardCancelCallback = nil
                         splitChargeAmount = 0
                         splitChargeCurrency = ""
                         if pendingSplitStripeCallback != nil {
-                            // Split context: defer to onDismiss to avoid sheet toggle race
                             pendingNextSplitEntryResult = (intentId: paymentIntentId, sessionId: nil)
                         } else {
-                            // Normal (non-split) success: show receipt prompt
                             showingReceiptPrompt = true
                         }
                         showingStripeCardPayment = false
                     },
                     onCancel: {
+                        // SDK decline path only — toolbar Cancel bypasses this closure.
+                        // Both paths land in onDismiss above. Just dismiss here.
                         showingStripeCardPayment = false
-                        if let splitCancel = pendingSplitCardCancelCallback {
-                            pendingSplitCardCancelCallback = nil
-                            splitChargeAmount = 0
-                            splitChargeCurrency = ""
-                            splitCancel()
-                        } else {
-                            splitChargeAmount = 0
-                            splitChargeCurrency = ""
-                        }
                     }
                 )
             }
@@ -953,7 +955,23 @@ struct PanelView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingStripeQRPayment) {
+        .sheet(isPresented: $showingStripeQRPayment, onDismiss: {
+            // ── 1. Success path ────────────────────────────────────────────────
+            if let result = pendingNextSplitEntryResult {
+                pendingNextSplitEntryResult = nil
+                let cb = pendingSplitStripeCallback
+                pendingSplitStripeCallback = nil
+                cb?(result.intentId, result.sessionId)
+                return
+            }
+            // ── 2. Cancel path (any source) ────────────────────────────────────
+            if let splitCancel = pendingSplitCardCancelCallback {
+                pendingSplitCardCancelCallback = nil
+                splitChargeAmount = 0
+                splitChargeCurrency = ""
+                splitCancel()
+            }
+        }) {
             if let backendURL = event.stripeBackendURL,
                let txnRef = pendingTxnRef {
                 let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
@@ -966,28 +984,17 @@ struct PanelView: View {
                     lineItems: (splitChargeAmount > 0) ? nil : (stripeLineItems().isEmpty ? nil : stripeLineItems()),
                     backendURL: backendURL,
                     onSuccess: { sessionId in
-                        if let splitCB = pendingSplitStripeCallback {
-                            pendingSplitStripeCallback = nil
-                            pendingSplitCardCancelCallback = nil
-                            splitChargeAmount = 0
-                            splitChargeCurrency = ""
-                            showingStripeQRPayment = false
-                            splitCB(nil, sessionId)
+                        pendingSplitCardCancelCallback = nil  // tells onDismiss: success
+                        if pendingSplitStripeCallback != nil {
+                            pendingNextSplitEntryResult = (intentId: nil, sessionId: sessionId)
                         } else {
                             processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: txnRef)
                         }
+                        showingStripeQRPayment = false
                     },
                     onCancel: {
+                        // Just dismiss — onDismiss handles the split cancel callback
                         showingStripeQRPayment = false
-                        if let splitCancel = pendingSplitCardCancelCallback {
-                            pendingSplitCardCancelCallback = nil
-                            splitChargeAmount = 0
-                            splitChargeCurrency = ""
-                            splitCancel()
-                        } else {
-                            splitChargeAmount = 0
-                            splitChargeCurrency = ""
-                        }
                     }
                 )
             }
