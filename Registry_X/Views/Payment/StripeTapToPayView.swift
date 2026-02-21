@@ -337,7 +337,9 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                 }
                                 
                                 // Success! Extract card last 4 from terminal response.
-                                let last4 = confirmResult?.paymentMethod?.cardPresent?.last4
+                                // SCPPaymentMethod.h confirms: .cardPresent is SCPCardPresentDetails?
+                                // SCPCardPresentDetails.last4 is always populated after a successful tap.
+                                let last4: String? = confirmResult?.paymentMethod?.cardPresent?.last4
                                 self.paymentStatus = .success
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 if let intentId = self.paymentIntentId {

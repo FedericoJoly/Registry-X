@@ -1631,7 +1631,11 @@ struct PanelView: View {
             pendingSplitRegisterCallback = { email in
                 finaliseSplitTransaction(stripeIntentId: stripeIntentId, stripeSessionId: stripeSessionId, receiptEmail: email)
             }
-            showingManualReceiptPrompt = true
+            // Defer the alert so iOS finishes the sheet dismissal animation first.
+            // Presenting an .alert synchronously inside onDismiss is silently dropped by UIKit.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                showingManualReceiptPrompt = true
+            }
         }
 
         // ── Sequential processing using index ────────────────────────────────
