@@ -899,17 +899,22 @@ struct PanelView: View {
         }
         .sheet(isPresented: $showingStripeCardPayment, onDismiss: {
             // Handles ALL sheet dismissal sources: success, SDK decline, toolbar Cancel, swipe-to-dismiss.
-            // ── 1. Success: chain next split entry ────────────────────────────
+            // ── 1. Success: chain next split entry after animation fully settles ─
             if let result = pendingNextSplitEntryResult {
                 pendingNextSplitEntryResult = nil
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
-                cb?(result.intentId, result.sessionId)
+                // Delay is essential: calling cb() here sets showingStripeCardPayment=true
+                // inside onDismiss of the same sheet — iOS needs a full runloop cycle to
+                // finish committing the dismiss before it can accept a new presentation.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    cb?(result.intentId, result.sessionId)
+                }
                 return  // don't fall through to cancel branch
             }
             // ── 2. Cancel (any source): fire split recovery callback ──────────
-            // Success nils pendingSplitCardCancelCallback before setting
-            // showingStripeCardPayment=false, so this only runs on genuine cancels.
+            // Success nils pendingSplitCardCancelCallback before dismissing,
+            // so this only runs on genuine cancels.
             if let splitCancel = pendingSplitCardCancelCallback {
                 pendingSplitCardCancelCallback = nil
                 splitChargeAmount = 0
@@ -961,7 +966,9 @@ struct PanelView: View {
                 pendingNextSplitEntryResult = nil
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
-                cb?(result.intentId, result.sessionId)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    cb?(result.intentId, result.sessionId)
+                }
                 return
             }
             // ── 2. Cancel path (any source) ────────────────────────────────────
