@@ -337,6 +337,8 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 if let intentId = self.paymentIntentId {
                                     self.onSuccess(intentId)
+                                    // Auto-dismiss so the caller can chain the next step
+                                    self.cleanup()
                                 }
                             }
                         }
@@ -612,7 +614,7 @@ struct StripeTapToPayView: View {
             .navigationTitle("Tap to Pay")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if coordinator.paymentStatus != .processing {
+                if coordinator.paymentStatus != .processing && coordinator.paymentStatus != .success {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") {
                             coordinator.cancelPayment()

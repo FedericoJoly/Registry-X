@@ -79,9 +79,12 @@ struct PanelView: View {
     @State private var splitChargeCurrency: String = ""
     // Callback to finalise split TX registration after the manual receipt step
     @State private var pendingSplitRegisterCallback: ((String?) -> Void)? = nil
-    // Split failure alert (shown after 3 consecutive card failures)
+    // Split failure alert (shown after 3 consecutive TTP/QR failures)
     @State private var showingSplitCardFailureAlert = false
     @State private var splitFailureAlertActions: [SplitFailureAction] = []
+    // Holds the split callback result until the sheet is fully dismissed (avoids race condition
+    // where toggling showingStripeCardPayment off→on in the same cycle leaves the sheet stuck)
+    @State private var pendingNextSplitEntryResult: (intentId: String?, sessionId: String?)? = nil
     
     init(event: Event, onQuit: (() -> Void)? = nil) {
         self.event = event
@@ -890,7 +893,16 @@ struct PanelView: View {
             )
             .presentationDetents([.height(250)])
         }
-        .sheet(isPresented: $showingStripeCardPayment) {
+        .sheet(isPresented: $showingStripeCardPayment, onDismiss: {
+            // Fire the deferred split callback AFTER the sheet is fully gone,
+            // so the next sheet can present without a race condition.
+            if let result = pendingNextSplitEntryResult {
+                pendingNextSplitEntryResult = nil
+                let cb = pendingSplitStripeCallback
+                pendingSplitStripeCallback = nil
+                cb?(result.intentId, result.sessionId)
+            }
+        }) {
             if let backendURL = event.stripeBackendURL,
                let txnRef = pendingTxnRef {
                 let chargeAmount = splitChargeAmount > 0 ? splitChargeAmount : derivedTotal
@@ -904,27 +916,25 @@ struct PanelView: View {
                     onSuccess: { paymentIntentId in
                         pendingPaymentIntentId = paymentIntentId
                         pendingSplitCardCancelCallback = nil
-                        showingStripeCardPayment = false
-                        if let splitCB = pendingSplitStripeCallback {
-                            // Split context: hand result to the sequential processor
-                            pendingSplitStripeCallback = nil
-                            splitChargeAmount = 0
-                            splitChargeCurrency = ""
-                            splitCB(paymentIntentId, nil)
+                        splitChargeAmount = 0
+                        splitChargeCurrency = ""
+                        if pendingSplitStripeCallback != nil {
+                            // Split context: defer to onDismiss to avoid sheet toggle race
+                            pendingNextSplitEntryResult = (intentId: paymentIntentId, sessionId: nil)
                         } else {
+                            // Normal (non-split) success: show receipt prompt
                             showingReceiptPrompt = true
                         }
+                        showingStripeCardPayment = false
                     },
                     onCancel: {
                         showingStripeCardPayment = false
                         if let splitCancel = pendingSplitCardCancelCallback {
-                            // Split context: let the retry/void logic decide what to do
                             pendingSplitCardCancelCallback = nil
                             splitChargeAmount = 0
                             splitChargeCurrency = ""
                             splitCancel()
                         } else {
-                            // Normal (non-split) cancel
                             splitChargeAmount = 0
                             splitChargeCurrency = ""
                         }
