@@ -82,9 +82,13 @@ struct PanelView: View {
     // Split failure alert (shown after 3 consecutive TTP/QR failures)
     @State private var showingSplitCardFailureAlert = false
     @State private var splitFailureAlertActions: [SplitFailureAction] = []
+    // Interrupt alert (shown when Cancel is pressed mid-split with already-captured entries)
+    @State private var showingSplitReturnToSheetAlert = false
     // Holds the split callback result until the sheet is fully dismissed (avoids race condition
     // where toggling showingStripeCardPayment off→on in the same cycle leaves the sheet stuck)
     @State private var pendingNextSplitEntryResult: (intentId: String?, sessionId: String?)? = nil
+    // Already-captured entries mid-split (for Return to Sheet recovery and Void All refunds)
+    @State private var splitCollectedEntries: [(entry: SplitEntry, intentId: String?)] = []
     
     init(event: Event, onQuit: (() -> Void)? = nil) {
         self.event = event
@@ -1109,6 +1113,23 @@ struct PanelView: View {
         } message: {
             Text("This card payment failed 3 times. How would you like to proceed?")
         }
+        // ── Mid-split interrupt alert (Cancel pressed during active split) ────────────
+        .alert("Payment Interrupted", isPresented: $showingSplitReturnToSheetAlert) {
+            Button("Return to Split Sheet") {
+                pendingSplitEntries = []
+                pendingSplitStripeCallback = nil
+                pendingSplitCardCancelCallback = nil
+                showingSplitPaySheet = true
+            }
+            Button("Void All & Refund", role: .destructive) {
+                voidAllAndReset()
+            }
+            Button("Dismiss", role: .cancel) { }
+        } message: {
+            Text(splitCollectedEntries.isEmpty
+                ? "The card payment was cancelled."
+                : "\(splitCollectedEntries.count) payment(s) were already captured. You can return to the split sheet to collect the remaining balance, or void all and issue refunds.")
+        }
         .sheet(isPresented: $showingManualReceiptEmailSheet) {
             SimpleEmailSheet(
                 onComplete: { customerEmail in
@@ -1137,16 +1158,20 @@ struct PanelView: View {
         .sheet(isPresented: $showingSplitPaySheet) {
             let enabledCurrencies = event.currencies.filter { $0.isEnabled }
             let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+            let rate = enabledCurrencies.first(where: { $0.code == mainCode })?.rate ?? 1
+            let locked = splitCollectedEntries.map { $0.entry }
+            let lockedIds = splitCollectedEntries.compactMap { $0.intentId }
             SplitPaySheet(
                 availableMethods: allEnabledPaymentMethods,
                 availableCurrencies: enabledCurrencies,
                 mainCurrencyCode: mainCode,
                 derivedTotal: rate > 0 ? derivedTotal / rate : derivedTotal,
+                lockedEntries: locked,
+                lockedIntentIds: lockedIds,
                 onCancel: {
                     showingSplitPaySheet = false
                 },
                 onConfirm: { entries in
-                    // Sort entries: card > QR > bizum > others (complex first)
                     let priority: (SplitEntry) -> Int = { e in
                         if e.methodIcon.contains("creditcard") { return 3 }
                         if e.methodIcon.contains("qrcode") { return 2 }
@@ -1156,6 +1181,10 @@ struct PanelView: View {
                     pendingSplitEntries = entries.sorted { priority($0) > priority($1) }
                     showingSplitPaySheet = false
                     showingSplitConfirmSheet = true
+                },
+                onVoidAll: lockedIds.isEmpty ? nil : {
+                    showingSplitPaySheet = false
+                    voidAllAndReset()
                 }
             )
         }
@@ -1428,6 +1457,28 @@ struct PanelView: View {
         }
     }
     
+    /// Refunds all Stripe intents collected mid-split and resets all split state to a clean PanelView.
+    /// Called from the interrupt alert (Void All & Refund) and the failure alert (Void & Refund All).
+    private func voidAllAndReset() {
+        let intentIds = splitCollectedEntries.compactMap { $0.intentId }
+        if let backendURL = event.stripeBackendURL, !intentIds.isEmpty {
+            let service = StripeNetworkService(backendURL: backendURL)
+            Task {
+                for intentId in intentIds {
+                    try? await service.refundPaymentIntent(intentId: intentId)
+                }
+            }
+        }
+        splitCollectedEntries = []
+        pendingSplitEntries = []
+        pendingSplitStripeCallback = nil
+        pendingSplitCardCancelCallback = nil
+        pendingNextSplitEntryResult = nil
+        pendingTxnRef = nil
+        splitChargeAmount = 0
+        splitChargeCurrency = ""
+    }
+
     /// Processes an N-way split payment by iterating pendingSplitEntries sequentially.
     /// Card/QR entries trigger TTP; Bizum entries trigger the Bizum sheet.
     /// After all hardware payments succeed, one Transaction is saved with [SplitEntry] JSON.
@@ -1493,6 +1544,7 @@ struct PanelView: View {
             overriddenTotal = nil
             overriddenCategoryTotals.removeAll()
             pendingSplitEntries = []
+            splitCollectedEntries = []  // Clear after successful finalise
 
             withAnimation { showingTransactionNotification = true }
             Task {
@@ -1570,6 +1622,8 @@ struct PanelView: View {
                         if let intentId { collectedIntentId = intentId }
                         if let sessionId { collectedSessionId = sessionId }
                         pendingSplitCardCancelCallback = nil
+                        // Track this entry as successfully captured for mid-split recovery
+                        splitCollectedEntries.append((entry: entry, intentId: intentId ?? sessionId))
                         processEntry(at: idx + 1)
                     }
                     pendingSplitCardCancelCallback = {
@@ -1584,19 +1638,32 @@ struct PanelView: View {
                                     splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
                                     attemptCardEntry()
                                 },
+                                SplitFailureAction(title: "Return to Split Sheet", isDestructive: false) {
+                                    // Go back to sheet with captured entries locked + remaining editable
+                                    pendingSplitEntries = []
+                                    pendingSplitStripeCallback = nil
+                                    pendingSplitCardCancelCallback = nil
+                                    showingSplitPaySheet = true
+                                },
                                 SplitFailureAction(title: "Accept \(amtStr) as Cash", isDestructive: false) {
                                     pendingSplitCardCancelCallback = nil
                                     processEntry(at: idx + 1)
                                 },
-                                SplitFailureAction(title: "Void & Refund Previous Payments", isDestructive: true) {
-                                    voidAndReset()
+                                SplitFailureAction(title: "Void & Refund All", isDestructive: true) {
+                                    voidAllAndReset()
                                 }
                             ]
                             showingSplitCardFailureAlert = true
                         } else {
-                            splitChargeAmount = chargeAmt
-                            splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
-                            attemptCardEntry()
+                            // First/second cancel: show interrupt alert so user can choose to go back
+                            if !splitCollectedEntries.isEmpty {
+                                showingSplitReturnToSheetAlert = true
+                            } else {
+                                // Nothing captured yet — just retry silently
+                                splitChargeAmount = chargeAmt
+                                splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
+                                attemptCardEntry()
+                            }
                         }
                     }
                     if isCard {

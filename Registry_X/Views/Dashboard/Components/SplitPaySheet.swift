@@ -14,10 +14,16 @@ struct SplitPaySheet: View {
     let availableMethods: [PaymentMethodOption]
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
-    let derivedTotal: Decimal
+    let derivedTotal: Decimal          // Full cart total (for header display)
+    /// Entries already captured mid-split — shown locked, reduce the remaining balance
+    var lockedEntries: [SplitEntry] = []
+    /// Intent/session IDs of captured payments — needed for Void All refunds
+    var lockedIntentIds: [String] = []
     let onCancel: () -> Void
-    /// Called on OK with the fully-formed split entries
+    /// Called on OK with the fully-formed split entries (NOT including locked ones — those are already done)
     let onConfirm: ([SplitEntry]) -> Void
+    /// Called when merchant taps Void All — refunds locked payments and closes
+    var onVoidAll: (() -> Void)? = nil
 
     @State private var entries: [SplitMethodEntry] = []
     @FocusState private var focusedRowId: UUID?
@@ -51,13 +57,18 @@ struct SplitPaySheet: View {
         return r > 0 ? val / r : val
     }
 
+    // Remaining balance after locked entries (this is what the editable rows must sum to)
+    private var remainingTotal: Decimal {
+        derivedTotal - lockedEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+    }
+
     private var enteredTotal: Decimal {
         entries.reduce(Decimal(0)) { $0 + amountInMain($1) }
     }
 
-    private var remaining: Decimal { derivedTotal - enteredTotal }
+    private var remaining: Decimal { remainingTotal - enteredTotal }
     private var isBalanced: Bool {
-        let diff = enteredTotal - derivedTotal
+        let diff = enteredTotal - remainingTotal
         return diff >= -0.005 && diff <= 0.005
     }
 
@@ -66,7 +77,10 @@ struct SplitPaySheet: View {
     }
 
     private var canConfirm: Bool {
-        isBalanced && filledEntries.count >= 2
+        guard isBalanced else { return false }
+        // Need ≥2 entries total (locked + editable)
+        let totalEntries = lockedEntries.count + filledEntries.count
+        return totalEntries >= 2
     }
 
     // How many rows already exist for a given method option id
@@ -117,12 +131,35 @@ struct SplitPaySheet: View {
             VStack(spacing: 0) {
                 // Header: total + remaining
                 VStack(spacing: 4) {
-                    Text("Total")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text(symbol(for: mainCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(isBalanced ? .green : .primary)
+                    if !lockedEntries.isEmpty {
+                        // Show full total and how much remains to be entered
+                        HStack(spacing: 16) {
+                            VStack(spacing: 2) {
+                                Text("Total")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(symbol(for: mainCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                                    .font(.headline.bold())
+                            }
+                            Image(systemName: "arrow.right")
+                                .foregroundStyle(.secondary)
+                            VStack(spacing: 2) {
+                                Text("Remaining")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(symbol(for: mainCurrencyCode) + remainingTotal.formatted(.number.precision(.fractionLength(2))))
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundStyle(isBalanced ? .green : .orange)
+                            }
+                        }
+                    } else {
+                        Text("Total")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(symbol(for: mainCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(isBalanced ? .green : .primary)
+                    }
                     if !isBalanced && enteredTotal > 0 {
                         Text("\(symbol(for: mainCurrencyCode))\(abs(remaining).formatted(.number.precision(.fractionLength(2)))) \(remaining > 0 ? "remaining" : "over")")
                             .font(.footnote)
@@ -151,36 +188,82 @@ struct SplitPaySheet: View {
                 Divider()
 
                 List {
-                    ForEach($entries) { $entry in
-                        SplitMethodRow(
-                            entry: $entry,
-                            availableCurrencies: availableCurrencies,
-                            mainCurrencyCode: mainCurrencyCode,
-                            canDuplicate: canDuplicate(entry),
-                            isCurrencyEnabled: { currency in
-                                // Empty set → method accepts ALL currencies
-                                if entry.method.enabledCurrencies.isEmpty { return true }
-                                // Primary: UUID match (normal case)
-                                if entry.method.enabledCurrencies.contains(currency.id) { return true }
-                                // Fallback: code-based match (in case UUIDs are stale)
-                                let matchedId = availableCurrencies.first(where: { $0.code == currency.code })?.id
-                                return matchedId.map { entry.method.enabledCurrencies.contains($0) } ?? false
-                            },
-                            convert: convert,
-                            focusedId: $focusedRowId,
-                            onDoubleTapIcon: { insertRow(after: entry) }
-                        )
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color(UIColor.systemBackground))
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            if entry.isUserAdded {
-                                Button(role: .destructive) {
-                                    withAnimation {
-                                        entries.removeAll { $0.id == entry.id }
+                    // ── Locked / already-captured entries ──────────────────────
+                    if !lockedEntries.isEmpty {
+                        Section {
+                            ForEach(lockedEntries) { locked in
+                                HStack(spacing: 12) {
+                                    ZStack(alignment: .topTrailing) {
+                                        Image(systemName: locked.methodIcon)
+                                            .font(.title3)
+                                            .foregroundStyle(.white)
+                                            .frame(width: 40, height: 40)
+                                            .background(Color(hex: locked.colorHex))
+                                            .cornerRadius(8)
+                                            .opacity(0.6)
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(.green)
+                                            .background(Circle().fill(.white).padding(-1))
+                                            .offset(x: 4, y: -4)
                                     }
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(locked.method)
+                                            .font(.body)
+                                            .foregroundStyle(.secondary)
+                                        Text("Captured")
+                                            .font(.caption2)
+                                            .foregroundStyle(.green)
+                                    }
+                                    Spacer()
+                                    let sym = availableCurrencies.first(where: { $0.code == locked.currencyCode })?.symbol ?? locked.currencyCode
+                                    Text(sym + locked.chargeAmount.formatted(.number.precision(.fractionLength(2))))
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 10)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color(UIColor.systemFill).opacity(0.3))
+                            }
+                        } header: {
+                            Text("Already Captured")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.green)
+                                .textCase(nil)
+                        }
+                    }
+
+                    // ── Editable remaining entries ─────────────────────────────
+                    Section {
+                        ForEach($entries) { $entry in
+                            SplitMethodRow(
+                                entry: $entry,
+                                availableCurrencies: availableCurrencies,
+                                mainCurrencyCode: mainCurrencyCode,
+                                canDuplicate: canDuplicate(entry),
+                                isCurrencyEnabled: { currency in
+                                    if entry.method.enabledCurrencies.isEmpty { return true }
+                                    if entry.method.enabledCurrencies.contains(currency.id) { return true }
+                                    let matchedId = availableCurrencies.first(where: { $0.code == currency.code })?.id
+                                    return matchedId.map { entry.method.enabledCurrencies.contains($0) } ?? false
+                                },
+                                convert: convert,
+                                focusedId: $focusedRowId,
+                                onDoubleTapIcon: { insertRow(after: entry) }
+                            )
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color(UIColor.systemBackground))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                if entry.isUserAdded {
+                                    Button(role: .destructive) {
+                                        withAnimation {
+                                            entries.removeAll { $0.id == entry.id }
+                                        }
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
                                 }
                             }
                         }
@@ -197,6 +280,15 @@ struct SplitPaySheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
+                }
+                // Void All: only shown when there are already-captured entries to unwind
+                if !lockedEntries.isEmpty, let voidAll = onVoidAll {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Void All") {
+                            voidAll()
+                        }
+                        .foregroundStyle(.red)
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("OK") {
