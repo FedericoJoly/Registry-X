@@ -179,19 +179,24 @@ app.post('/create-checkout-session', async (req, res) => {
 // Verify Payment Intent status
 app.get('/payment-intent/:id', async (req, res) => {
   try {
-    // Expand latest_charge to get payment_method_details.card_present.last4 (TTP)
+    // Expand latest_charge to get payment_method_details with card_present + wallet info
     const paymentIntent = await stripe.paymentIntents.retrieve(req.params.id, {
       expand: ['latest_charge']
     });
-    // Extract last4 from charge: card_present for TTP, card for online payments
     const details = paymentIntent.latest_charge?.payment_method_details;
-    const last4 = details?.card_present?.last4 || details?.card?.last4 || null;
+    const cardPresent = details?.card_present;
+    // wallet.type = "apple_pay" | "google_pay" | null (physical card tap)
+    const walletType = cardPresent?.wallet?.type || null;
+    // For digital wallets (Apple Pay / Google Pay), last4 is the Device Account Number
+    // which differs from the printed card number — suppress it, use wallet label instead.
+    const last4 = walletType ? null : (cardPresent?.last4 || details?.card?.last4 || null);
     res.json({
       status: paymentIntent.status,
       amount: paymentIntent.amount,
       currency: paymentIntent.currency,
       metadata: paymentIntent.metadata,
-      last4: last4
+      last4: last4,
+      wallet: walletType   // "apple_pay", "google_pay", or null
     });
   } catch (error) {
     console.error('Error retrieving payment intent:', error);

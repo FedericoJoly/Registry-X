@@ -18,7 +18,8 @@ struct PaymentStatusResponse: Codable {
     let status: String
     let amount: Int
     let currency: String
-    let last4: String?   // card_present.last4 (TTP) or card.last4 — populated after capture
+    let last4: String?   // card_present.last4 — nil for Apple/Google Pay (DAN != FPAN)
+    let wallet: String?  // "apple_pay", "google_pay", or nil for physical card
 }
 
 // MARK: - Network Service
@@ -225,11 +226,21 @@ class StripeNetworkService {
         return try decoder.decode(PaymentStatusResponse.self, from: data)
     }
     
-    /// Fetches just the card last4 for a captured PaymentIntent.
-    /// Returns nil if the call fails or the intent has no card details.
+    /// Fetches card display info for a captured PaymentIntent.
+    /// Returns nil if the call fails.
+    /// Returns "APPLE_PAY" or "GOOGLE_PAY" for digital wallet payments.
+    /// Returns the last4 string (e.g. "1234") for physical card taps.
     func fetchCardLast4(intentId: String) async -> String? {
         do {
             let status = try await checkPaymentStatus(intentId: intentId)
+            // Digital wallet: return a sentinel so receipt shows "Apple Pay"/"Google Pay"
+            if let wallet = status.wallet {
+                switch wallet {
+                case "apple_pay":  return "APPLE_PAY"
+                case "google_pay": return "GOOGLE_PAY"
+                default:           return "WALLET"   // other wallet types
+                }
+            }
             return status.last4
         } catch {
             print("[LAST4] fetchCardLast4 ERROR for \(intentId): \(error)")
