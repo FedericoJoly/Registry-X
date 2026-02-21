@@ -955,6 +955,7 @@ struct PanelView: View {
             if let result = pendingNextSplitEntryResult {
                 pendingNextSplitEntryResult = nil
                 pendingCardLast4 = result.cardLast4  // make last4 available to the callback
+                print("[LAST4] Stage 3 - onDismiss: result.cardLast4=\(result.cardLast4 ?? "nil"), pendingCardLast4 now=\(pendingCardLast4 ?? "nil")")
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
                 cb?(result.intentId, result.sessionId)   // safe: new job UUID = fresh sheet
@@ -1563,6 +1564,10 @@ struct PanelView: View {
             // priorCollectedEntries was snapshotted before this run started, so there
             // is no overlap with pendingSplitEntries (current run).
             let allSplitEntries = priorCollectedEntries + pendingSplitEntries
+            print("[LAST4] Stage 5 - finaliseSplitTransaction allSplitEntries:")
+            for (i, e) in allSplitEntries.enumerated() {
+                print("  [\(i)] method=\(e.method) icon=\(e.methodIcon) cardLast4=\(e.cardLast4 ?? "nil")")
+            }
             let mainTotal = allSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
             // Primary = first entry overall (most complex — card > QR > bizum > cash)
             let primary = allSplitEntries[0]
@@ -1695,6 +1700,7 @@ struct PanelView: View {
                         var capturedEntry = entry
                         capturedEntry.cardLast4 = pendingCardLast4
                         pendingCardLast4 = nil
+                        print("[LAST4] Stage 4 - splitCallback: capturedEntry.cardLast4=\(capturedEntry.cardLast4 ?? "nil")")
                         // Also update the live pendingSplitEntries so finaliseSplitTransaction
                         // sees last4 for current-run entries via + pendingSplitEntries
                         if idx < pendingSplitEntries.count {

@@ -315,10 +315,9 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                         
                         guard let collectedIntent = collectResult else { return }
                         
-                        // ── Capture last4 here: paymentMethod IS populated on collectedIntent
-                        // (Stripe Terminal SDK clears it after confirmPaymentIntent, so we must
-                        // read it NOW before confirmation.)
+                        // ── Stage 1: Try to capture last4 from SDK (may be nil for TTP)
                         self.capturedLast4 = collectedIntent.paymentMethod?.cardPresent?.last4
+                        print("[LAST4] Stage 1 - SDK capturedLast4 (collectPaymentMethod): \(self.capturedLast4 ?? "nil")")
                         
                         // Update to processing
                         self.paymentStatus = .processing
@@ -342,17 +341,20 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                     return
                                 }
                                 
-                                // Success! Fetch card last4 from backend concurrently with
-                                // the success animation delay — the Stripe API always populates
-                                // charge.payment_method_details.card_present.last4 after capture.
+                                // Success! Fetch last4 from backend — the Stripe API always
+                                // populates charge.payment_method_details.card_present.last4.
+                                // Fetch first (fast), then wait remaining animation time.
                                 self.paymentStatus = .success
                                 guard let intentId = self.paymentIntentId else { return }
-                                // Run backend fetch and success animation in parallel
-                                async let fetchedLast4: String? = StripeNetworkService(backendURL: self.backendURL).fetchCardLast4(intentId: intentId)
-                                async let _: () = Task.sleep(nanoseconds: 1_500_000_000)
-                                let last4 = try? await fetchedLast4
-                                // Prefer backend result; fall back to SDK-captured value
-                                self.onSuccess(intentId, last4 ?? self.capturedLast4)
+                                print("[LAST4] Stage 2 - Fetching from backend for intent: \(intentId)")
+                                let networkService = StripeNetworkService(backendURL: self.backendURL)
+                                let backendLast4 = await networkService.fetchCardLast4(intentId: intentId)
+                                print("[LAST4] Stage 2 - Backend returned last4: \(backendLast4 ?? "nil")")
+                                let finalLast4 = backendLast4 ?? self.capturedLast4
+                                print("[LAST4] Stage 2 - Final last4 going to onSuccess: \(finalLast4 ?? "nil")")
+                                // Wait for the animation to finish (backend fetch already done)
+                                try? await Task.sleep(nanoseconds: 1_000_000_000) // reduced since fetch took time
+                                self.onSuccess(intentId, finalLast4)
                                 self.cleanup()
                             }
                         }
