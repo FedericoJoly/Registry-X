@@ -1553,6 +1553,10 @@ struct PanelView: View {
         guard cart.values.contains(where: { $0 > 0 }) else { return }
         guard !pendingSplitEntries.isEmpty else { return }
 
+        // Clear any leftover pendingTxnRef from a previous payment so the freshly
+        // generated txnRef is guaranteed to propagate to both the TTP description
+        // (via line below) AND finaliseSplitTransaction — keeping all 4 surfaces in sync.
+        pendingTxnRef = nil
         let txnRef = generateTransactionRef()
         let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
 
@@ -1577,7 +1581,7 @@ struct PanelView: View {
                 note: note.isEmpty ? nil : note,
                 paymentMethod: primaryMethod,
                 paymentMethodIcon: primary.methodIcon,
-                transactionRef: txnRef,
+                transactionRef: pendingTxnRef ?? txnRef,   // same ref TTP used in its description
                 stripePaymentIntentId: stripeIntentId,
                 stripeSessionId: stripeSessionId,
                 paymentStatus: (stripeIntentId != nil || stripeSessionId != nil) ? "succeeded" : "manual",
