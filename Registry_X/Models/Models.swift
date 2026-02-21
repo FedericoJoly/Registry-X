@@ -197,21 +197,14 @@ final class Transaction {
     // Receipt Email (for tap-to-pay receipts)
     var receiptEmail: String?
     
-    // Split Payment fields — DEPRECATED fixed 2-slot fields (kept for SwiftData schema safety)
-    // These are no longer written; use splitEntriesJSON / splitEntries instead.
-    @available(*, deprecated, message: "Use splitEntries")
+    // Legacy 2-slot split fields — kept ONLY for SwiftData schema safety (do not read/write).
+    // All split data lives in splitEntriesJSON / splitEntries.
     var isSplit: Bool = false
-    @available(*, deprecated, message: "Use splitEntries")
     var splitMethod: String?
-    @available(*, deprecated, message: "Use splitEntries")
     var splitMethodIcon: String?
-    @available(*, deprecated, message: "Use splitEntries")
     var splitAmount1: Decimal?
-    @available(*, deprecated, message: "Use splitEntries")
     var splitAmount2: Decimal?
-    @available(*, deprecated, message: "Use splitEntries")
     var splitCurrencyCode1: String?
-    @available(*, deprecated, message: "Use splitEntries")
     var splitCurrencyCode2: String?
 
     // N-way split: JSON-encoded [SplitEntry] (nil = not a split transaction)

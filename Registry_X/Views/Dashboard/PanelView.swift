@@ -1500,7 +1500,7 @@ struct PanelView: View {
             let service = StripeNetworkService(backendURL: backendURL)
             Task {
                 for intentId in intentIds {
-                    try? await service.refundPaymentIntent(intentId: intentId)
+                    _ = try? await service.refundPaymentIntent(intentId: intentId)
                 }
             }
         }
@@ -1643,7 +1643,7 @@ struct PanelView: View {
                         let service = StripeNetworkService(backendURL: backendURL)
                         Task {
                             for intentId in intentIds {
-                                try? await service.refundPaymentIntent(intentId: intentId)
+                                _ = try? await service.refundPaymentIntent(intentId: intentId)
                             }
                         }
                     }
