@@ -1150,11 +1150,19 @@ struct PanelView: View {
             Button("Void All & Refund", role: .destructive) {
                 voidAllAndReset()
             }
-            Button("Dismiss", role: .cancel) { }
+            // Show Dismiss only when nothing has been charged (safe to walk away).
+            // Once a payment is captured the operator MUST resolve the remaining balance.
+            if splitCollectedEntries.isEmpty {
+                Button("Dismiss", role: .cancel) { }
+            } else {
+                Button("Accept Cash for Remaining") {
+                    acceptRemainingAsCash()
+                }
+            }
         } message: {
             Text(splitCollectedEntries.isEmpty
                 ? "The card payment was cancelled."
-                : "\(splitCollectedEntries.count) payment(s) were already captured. You can return to the split sheet to collect the remaining balance, or void all and issue refunds.")
+                : "\(splitCollectedEntries.count) payment(s) already captured. Collect remaining in cash, return to the split sheet to reconfigure, or void all and refund.")
         }
         .sheet(isPresented: $showingManualReceiptEmailSheet) {
             SimpleEmailSheet(
@@ -1525,6 +1533,101 @@ struct PanelView: View {
     
     /// Refunds all Stripe intents collected mid-split and resets all split state to a clean PanelView.
     /// Called from the interrupt alert (Void All & Refund) and the failure alert (Void & Refund All).
+    /// Completes a partial split by converting all remaining pendingSplitEntries to Cash,
+    /// saves the Transaction (captured cards + cash), resets split state, and prompts for receipt.
+    /// Called when the user taps \u201cAccept Cash for Remaining\u201d on the recovery alert.
+    private func acceptRemainingAsCash() {
+        let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+        // Find the event's cash payment method for icon + colour, fall back to sensible defaults.
+        let cashOption = allEnabledPaymentMethods.first(where: {
+            $0.icon.contains("banknote") || $0.name.lowercased() == "cash"
+        })
+        let cashName  = cashOption?.name  ?? "Cash"
+        let cashIcon  = cashOption?.icon  ?? "banknote"
+        let cashColor = cashOption?.colorHex ?? "#4CAF50"
+
+        // Convert every still-pending entry to a Cash entry (keeping the same amount).
+        let cashEntries: [SplitEntry] = pendingSplitEntries.map { entry in
+            SplitEntry(
+                method: cashName,
+                methodIcon: cashIcon,
+                colorHex: cashColor,
+                amountInMain: entry.amountInMain,
+                chargeAmount: entry.chargeAmount,
+                currencyCode: entry.currencyCode
+            )
+        }
+
+        let capturedEntries = splitCollectedEntries.map { $0.entry }
+        let allEntries = capturedEntries + cashEntries
+        guard !allEntries.isEmpty else { return }
+
+        let mainTotal    = allEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+        let primary      = allEntries[0]
+        let primaryMethod = PaymentMethod(rawValue: primary.method) ?? .cash
+        let txnRefToUse  = pendingTxnRef ?? generateTransactionRef()
+        let firstIntentId = splitCollectedEntries.compactMap { $0.intentId }.first
+
+        let transaction = Transaction(
+            totalAmount: mainTotal,
+            currencyCode: mainCode,
+            note: note.isEmpty ? nil : note,
+            paymentMethod: primaryMethod,
+            paymentMethodIcon: primary.methodIcon,
+            transactionRef: txnRefToUse,
+            stripePaymentIntentId: firstIntentId,
+            paymentStatus: firstIntentId != nil ? "succeeded" : "manual",
+            splitEntries: allEntries
+        )
+
+        for (id, qty) in cart {
+            if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                let basePrice  = proratedUnitPrice(for: id, quantity: qty)
+                let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                let line = LineItem(productName: product.name, quantity: qty,
+                                   unitPrice: finalPrice, subgroup: product.subgroup)
+                line.product = product
+                transaction.lineItems.append(line)
+            }
+        }
+        transaction.event = event
+        event.transactions.append(transaction)
+
+        if event.isStockControlEnabled {
+            for lineItem in transaction.lineItems {
+                if let product = lineItem.product, product.stockQty != nil {
+                    product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
+                }
+            }
+        }
+
+        // Reset all split state and cart.
+        splitCollectedEntries  = []
+        pendingSplitEntries    = []
+        pendingSplitStripeCallback = nil
+        pendingSplitCardCancelCallback = nil
+        pendingNextSplitEntryResult = nil
+        pendingTxnRef = nil
+        splitChargeAmount  = 0
+        splitChargeCurrency = ""
+        cart.removeAll()
+        note = ""
+        activeDiscountPromoIds.removeAll()
+        overriddenTotal = nil
+        overriddenCategoryTotals.removeAll()
+
+        withAnimation { showingTransactionNotification = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run { withAnimation { showingTransactionNotification = false } }
+        }
+
+        // Offer receipt after a brief delay so any sheet dismissal animation completes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            self.showingReceiptPrompt = true
+        }
+    }
+
     private func voidAllAndReset() {
         let intentIds = splitCollectedEntries.compactMap { $0.intentId }
         if let backendURL = event.stripeBackendURL, !intentIds.isEmpty {
