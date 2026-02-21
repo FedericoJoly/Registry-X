@@ -18,6 +18,7 @@ struct PaymentStatusResponse: Codable {
     let status: String
     let amount: Int
     let currency: String
+    let last4: String?   // card_present.last4 (TTP) or card.last4 — populated after capture
 }
 
 // MARK: - Network Service
@@ -222,6 +223,12 @@ class StripeNetworkService {
         
         let decoder = JSONDecoder()
         return try decoder.decode(PaymentStatusResponse.self, from: data)
+    }
+    
+    /// Fetches just the card last4 for a captured PaymentIntent.
+    /// Returns nil if the call fails or the intent has no card details.
+    func fetchCardLast4(intentId: String) async -> String? {
+        return try? await checkPaymentStatus(intentId: intentId).last4
     }
     
     // MARK: - Check Session Status

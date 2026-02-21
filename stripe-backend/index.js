@@ -179,12 +179,19 @@ app.post('/create-checkout-session', async (req, res) => {
 // Verify Payment Intent status
 app.get('/payment-intent/:id', async (req, res) => {
   try {
-    const paymentIntent = await stripe.paymentIntents.retrieve(req.params.id);
+    // Expand latest_charge to get payment_method_details.card_present.last4 (TTP)
+    const paymentIntent = await stripe.paymentIntents.retrieve(req.params.id, {
+      expand: ['latest_charge']
+    });
+    // Extract last4 from charge: card_present for TTP, card for online payments
+    const details = paymentIntent.latest_charge?.payment_method_details;
+    const last4 = details?.card_present?.last4 || details?.card?.last4 || null;
     res.json({
       status: paymentIntent.status,
       amount: paymentIntent.amount,
       currency: paymentIntent.currency,
-      metadata: paymentIntent.metadata
+      metadata: paymentIntent.metadata,
+      last4: last4
     });
   } catch (error) {
     console.error('Error retrieving payment intent:', error);

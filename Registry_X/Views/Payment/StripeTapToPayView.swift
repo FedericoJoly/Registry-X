@@ -342,14 +342,18 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                     return
                                 }
                                 
-                                // Success! Use last4 captured during collectPaymentMethod (before
-                                // confirm), since SDK clears paymentMethod after confirmation.
+                                // Success! Fetch card last4 from backend concurrently with
+                                // the success animation delay — the Stripe API always populates
+                                // charge.payment_method_details.card_present.last4 after capture.
                                 self.paymentStatus = .success
-                                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                                if let intentId = self.paymentIntentId {
-                                    self.onSuccess(intentId, self.capturedLast4)
-                                    self.cleanup()
-                                }
+                                guard let intentId = self.paymentIntentId else { return }
+                                // Run backend fetch and success animation in parallel
+                                async let fetchedLast4: String? = StripeNetworkService(backendURL: self.backendURL).fetchCardLast4(intentId: intentId)
+                                async let _: () = Task.sleep(nanoseconds: 1_500_000_000)
+                                let last4 = try? await fetchedLast4
+                                // Prefer backend result; fall back to SDK-captured value
+                                self.onSuccess(intentId, last4 ?? self.capturedLast4)
+                                self.cleanup()
                             }
                         }
                     }
