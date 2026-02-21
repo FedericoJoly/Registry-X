@@ -32,6 +32,9 @@ struct StripeCardPaymentJob: Identifiable {
     let description: String
     let backendURL: String
     let locationId: String
+    /// For split payments: 1-based index of this payment in the full sequence (e.g. 2 of 3).
+    var paymentIndex: Int = 1
+    var paymentTotal: Int = 1
 }
 
 /// Token passed to .sheet(item:) for Stripe QR / Checkout sessions.
@@ -1225,6 +1228,8 @@ struct PanelView: View {
             description: job.description,
             backendURL: job.backendURL,
             locationId: job.locationId,
+            paymentIndex: job.paymentIndex,
+            paymentTotal: job.paymentTotal,
             onSuccess: { paymentIntentId, cardLast4 in
                 pendingPaymentIntentId = paymentIntentId
                 pendingCardLast4 = cardLast4
@@ -1257,6 +1262,7 @@ struct PanelView: View {
                 availableCurrencies: enabledCurrencies,
                 mainCurrencyCode: mainCode,
                 totalAmount: total,
+                paidCount: splitCollectedEntries.count,
                 onCancel: {
                     showingSplitConfirmSheet = false
                     showingSplitPaySheet = true
@@ -1748,7 +1754,9 @@ struct PanelView: View {
                             currency: entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode,
                             description: paymentDescription(txnRef: txnRefStr),
                             backendURL: backendURL,
-                            locationId: event.stripeLocationId ?? ""
+                            locationId: event.stripeLocationId ?? "",
+                            paymentIndex: priorCollectedEntries.count + idx + 1,
+                            paymentTotal: priorCollectedEntries.count + pendingSplitEntries.count
                         )
                     } else {
                         guard let backendURL = event.stripeBackendURL else { return }

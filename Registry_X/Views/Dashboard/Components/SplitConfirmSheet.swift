@@ -7,6 +7,8 @@ struct SplitConfirmSheet: View {
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
     let totalAmount: Decimal
+    /// Number of leading entries already captured — shown greyed-out with a checkmark.
+    var paidCount: Int = 0
 
     let onCancel: () -> Void
     let onPay: () -> Void
@@ -91,27 +93,47 @@ struct SplitConfirmSheet: View {
 
     @ViewBuilder
     private func entryRow(entry: SplitEntry, index: Int) -> some View {
+        let isPaid = index <= paidCount
         HStack(spacing: 16) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(hex: entry.colorHex))
+                    .fill(isPaid ? Color.gray.opacity(0.35) : Color(hex: entry.colorHex))
                     .frame(width: 44, height: 44)
                 Image(systemName: entry.methodIcon)
                     .font(.title3)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.white.opacity(isPaid ? 0.6 : 1))
                 if splitEntries.filter({ $0.methodIcon == entry.methodIcon && $0.method == entry.method }).count > 1 {
-                    Text("\(index)")
-                        .font(.system(size: 10, weight: .bold))
+                    if isPaid {
+                        // Checkmark badge for paid entries
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 16, height: 16)
+                            .background(Circle().fill(Color.green))
+                            .offset(x: 14, y: -14)
+                    } else {
+                        Text("\(index)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 16, height: 16)
+                            .background(Circle().fill(Color.orange))
+                            .offset(x: 14, y: -14)
+                    }
+                } else if isPaid {
+                    // Checkmark for unique-method paid entries too
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 16, height: 16)
-                        .background(Circle().fill(Color.orange))
+                        .background(Circle().fill(Color.green))
                         .offset(x: 14, y: -14)
                 }
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.method)
+                Text(isPaid ? entry.method + " — Paid" : entry.method)
                     .font(.body)
+                    .foregroundStyle(isPaid ? .secondary : .primary)
                 Text(entry.currencyCode)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -122,8 +144,11 @@ struct SplitConfirmSheet: View {
             Text(symbol(for: entry.currencyCode) + displayAmount(for: entry).formatted(.number.precision(.fractionLength(2))))
                 .font(.body)
                 .bold()
+                .foregroundStyle(isPaid ? .secondary : .primary)
+                .strikethrough(isPaid, color: .secondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        .opacity(isPaid ? 0.65 : 1)
     }
 }

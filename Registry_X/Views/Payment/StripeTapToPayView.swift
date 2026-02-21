@@ -412,18 +412,25 @@ struct StripeTapToPayView: View {
     let description: String
     let backendURL: String
     let locationId: String
+    /// Progress indicator for split payments. Both default to 1 for single-card payments.
+    var paymentIndex: Int = 1
+    var paymentTotal: Int = 1
     let onSuccess: (String, String?) -> Void  // (intentId, cardLast4)
     let onCancel: () -> Void
     
     @StateObject private var coordinator: TapToPayCoordinator
     @Environment(\.dismiss) private var dismiss
     
-    init(amount: Decimal, currency: String, description: String, backendURL: String, locationId: String = "", onSuccess: @escaping (String, String?) -> Void, onCancel: @escaping () -> Void) {
+    init(amount: Decimal, currency: String, description: String, backendURL: String, locationId: String = "",
+         paymentIndex: Int = 1, paymentTotal: Int = 1,
+         onSuccess: @escaping (String, String?) -> Void, onCancel: @escaping () -> Void) {
         self.amount = amount
         self.currency = currency
         self.description = description
         self.backendURL = backendURL
         self.locationId = locationId
+        self.paymentIndex = paymentIndex
+        self.paymentTotal = paymentTotal
         self.onSuccess = onSuccess
         self.onCancel = onCancel
         
@@ -500,6 +507,16 @@ struct StripeTapToPayView: View {
                         Text("First time setup - this takes about 30 seconds")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                    
+                    // Split progress pill: show 'Payment 2 of 3' when in a multi-payment split
+                    if paymentTotal > 1 {
+                        Text("Payment \(paymentIndex) of \(paymentTotal)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.blue.opacity(0.8)))
                     }
                     
                     Text("\(formattedAmount) \(currency.uppercased())")
