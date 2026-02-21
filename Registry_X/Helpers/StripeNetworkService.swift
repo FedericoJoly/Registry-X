@@ -229,13 +229,7 @@ class StripeNetworkService {
     /// Fetches card last4 for a captured PaymentIntent.
     /// Returns nil if the call fails. Backend picks FPAN over DAN where available.
     func fetchCardLast4(intentId: String) async -> String? {
-        do {
-            let status = try await checkPaymentStatus(intentId: intentId)
-            return status.last4
-        } catch {
-            print("[LAST4] fetchCardLast4 ERROR for \(intentId): \(error)")
-            return nil
-        }
+        return try? await checkPaymentStatus(intentId: intentId).last4
     }
     
     // MARK: - Check Session Status

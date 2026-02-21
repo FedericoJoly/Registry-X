@@ -315,9 +315,8 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                         
                         guard let collectedIntent = collectResult else { return }
                         
-                        // ── Stage 1: Try to capture last4 from SDK (may be nil for TTP)
+                        // Capture last4 from collectPaymentMethod — SDK clears it after confirmPaymentIntent
                         self.capturedLast4 = collectedIntent.paymentMethod?.cardPresent?.last4
-                        print("[LAST4] Stage 1 - SDK capturedLast4 (collectPaymentMethod): \(self.capturedLast4 ?? "nil")")
                         
                         // Update to processing
                         self.paymentStatus = .processing
@@ -346,15 +345,10 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                 // Fetch first (fast), then wait remaining animation time.
                                 self.paymentStatus = .success
                                 guard let intentId = self.paymentIntentId else { return }
-                                print("[LAST4] Stage 2 - Fetching from backend for intent: \(intentId)")
-                                print("[LAST4] Stage 2 - Using backendURL: \(self.backendURL)")
                                 let networkService = StripeNetworkService(backendURL: self.backendURL)
                                 let backendLast4 = await networkService.fetchCardLast4(intentId: intentId)
-                                print("[LAST4] Stage 2 - Backend returned last4: \(backendLast4 ?? "nil")")
                                 let finalLast4 = backendLast4 ?? self.capturedLast4
-                                print("[LAST4] Stage 2 - Final last4 going to onSuccess: \(finalLast4 ?? "nil")")
-                                // Wait for the animation to finish (backend fetch already done)
-                                try? await Task.sleep(nanoseconds: 1_000_000_000) // reduced since fetch took time
+                                try? await Task.sleep(nanoseconds: 1_000_000_000)
                                 self.onSuccess(intentId, finalLast4)
                                 self.cleanup()
                             }
