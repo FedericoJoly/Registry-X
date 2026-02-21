@@ -347,6 +347,7 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                 self.paymentStatus = .success
                                 guard let intentId = self.paymentIntentId else { return }
                                 print("[LAST4] Stage 2 - Fetching from backend for intent: \(intentId)")
+                                print("[LAST4] Stage 2 - Using backendURL: \(self.backendURL)")
                                 let networkService = StripeNetworkService(backendURL: self.backendURL)
                                 let backendLast4 = await networkService.fetchCardLast4(intentId: intentId)
                                 print("[LAST4] Stage 2 - Backend returned last4: \(backendLast4 ?? "nil")")

@@ -228,7 +228,13 @@ class StripeNetworkService {
     /// Fetches just the card last4 for a captured PaymentIntent.
     /// Returns nil if the call fails or the intent has no card details.
     func fetchCardLast4(intentId: String) async -> String? {
-        return try? await checkPaymentStatus(intentId: intentId).last4
+        do {
+            let status = try await checkPaymentStatus(intentId: intentId)
+            return status.last4
+        } catch {
+            print("[LAST4] fetchCardLast4 ERROR for \(intentId): \(error)")
+            return nil
+        }
     }
     
     // MARK: - Check Session Status
