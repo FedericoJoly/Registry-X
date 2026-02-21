@@ -973,10 +973,15 @@ struct PanelView: View {
                     } else {
                         showingReceiptPrompt = true
                     }
-                    activeCardJob = nil
+                    // Guard: only nil the job if it's still THIS job — prevents a late
+                    // cleanup callback from the old coordinator dismissing the new card's sheet.
+                    if activeCardJob?.id == job.id { activeCardJob = nil }
                 },
                 onCancel: {
-                    activeCardJob = nil  // onDismiss fires next and handles split cancel
+                    // Guard: only dismiss if this job is still active.
+                    // Without this, cleanup() on the old coordinator can fire after the
+                    // new card's sheet is already presented, dismissing it accidentally.
+                    if activeCardJob?.id == job.id { activeCardJob = nil }
                 }
             )
         }
@@ -1525,11 +1530,19 @@ struct PanelView: View {
         let txnRef = generateTransactionRef()
         let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
 
+        // Snapshot entries captured BEFORE this run starts.
+        // finaliseSplitTransaction uses this instead of the live splitCollectedEntries
+        // to avoid double-counting: splitCollectedEntries also grows during the current
+        // run (each success appends), and pendingSplitEntries contains all current-run
+        // entries — merging both would produce duplicates.
+        let priorCollectedEntries: [SplitEntry] = splitCollectedEntries.map { $0.entry }
+
         // ── Finalise: save one Transaction with all N entries ─────────────────
         func finaliseSplitTransaction(stripeIntentId: String? = nil, stripeSessionId: String? = nil, receiptEmail: String? = nil) {
-            // Merge already-captured entries (from prior processSplitCheckout runs via Return-to-Sheet)
-            // with the current run's entries to get the full N-way split.
-            let allSplitEntries = splitCollectedEntries.map { $0.entry } + pendingSplitEntries
+            // Full split = prior-run entries (already captured) + current-run entries.
+            // priorCollectedEntries was snapshotted before this run started, so there
+            // is no overlap with pendingSplitEntries (current run).
+            let allSplitEntries = priorCollectedEntries + pendingSplitEntries
             let mainTotal = allSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
             // Primary = first entry overall (most complex — card > QR > bizum > cash)
             let primary = allSplitEntries[0]
@@ -1591,20 +1604,14 @@ struct PanelView: View {
             }
         }
 
-        // ── Receipt prompt helper ─────────────────────────────────────────────
+        // ── Receipt prompt helper ──────────────────────────────────────
         func maybePromptReceiptAndFinalise(stripeIntentId: String? = nil, stripeSessionId: String? = nil) {
-            let hasManual = pendingSplitEntries.contains {
-                let m = PaymentMethod(rawValue: $0.method) ?? .cash
-                return m == .cash || m == .transfer
+            // Always ask for a receipt regardless of payment method mix.
+            // pendingSplitRegisterCallback is invoked by the prompt sheet (email or nil for skip).
+            pendingSplitRegisterCallback = { email in
+                finaliseSplitTransaction(stripeIntentId: stripeIntentId, stripeSessionId: stripeSessionId, receiptEmail: email)
             }
-            if hasManual {
-                pendingSplitRegisterCallback = { email in
-                    finaliseSplitTransaction(stripeIntentId: stripeIntentId, stripeSessionId: stripeSessionId, receiptEmail: email)
-                }
-                showingManualReceiptPrompt = true
-            } else {
-                finaliseSplitTransaction(stripeIntentId: stripeIntentId, stripeSessionId: stripeSessionId)
-            }
+            showingManualReceiptPrompt = true
         }
 
         // ── Sequential processing using index ────────────────────────────────

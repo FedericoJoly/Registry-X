@@ -263,6 +263,10 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     
     nonisolated func reader(_ reader: Reader, didDisconnect reason: DisconnectReason) {
         Task { @MainActor in
+            // Ignore disconnect if payment already succeeded (cleanup calls disconnectReader
+            // after success — triggering this delegate should not flash a red error screen)
+            // or if this was an intentional cancel (isCanceled already handles cleanup).
+            guard paymentStatus != .success && !isCanceled else { return }
             self.errorMessage = "Reader disconnected: \(reason)"
             self.paymentStatus = .failed
         }
