@@ -1226,9 +1226,11 @@ struct PanelView: View {
             if !pendingSplitEntries.isEmpty {
                 let enabledCurrencies = event.currencies.filter { $0.isEnabled }
                 let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
-                let total = pendingSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                // Include already-captured entries from prior runs so the total is correct
+                let allEntries = splitCollectedEntries.map { $0.entry } + pendingSplitEntries
+                let total = allEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
                 SplitConfirmSheet(
-                    splitEntries: pendingSplitEntries,
+                    splitEntries: allEntries,
                     availableCurrencies: enabledCurrencies,
                     mainCurrencyCode: mainCode,
                     totalAmount: total,
@@ -1525,9 +1527,12 @@ struct PanelView: View {
 
         // ── Finalise: save one Transaction with all N entries ─────────────────
         func finaliseSplitTransaction(stripeIntentId: String? = nil, stripeSessionId: String? = nil, receiptEmail: String? = nil) {
-            let mainTotal = pendingSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
-            // Primary method = first entry (most complex — card > QR > bizum > cash)
-            let primary = pendingSplitEntries[0]
+            // Merge already-captured entries (from prior processSplitCheckout runs via Return-to-Sheet)
+            // with the current run's entries to get the full N-way split.
+            let allSplitEntries = splitCollectedEntries.map { $0.entry } + pendingSplitEntries
+            let mainTotal = allSplitEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+            // Primary = first entry overall (most complex — card > QR > bizum > cash)
+            let primary = allSplitEntries[0]
             let primaryMethod = PaymentMethod(rawValue: primary.method) ?? .cash
 
             let transaction = Transaction(
@@ -1541,7 +1546,7 @@ struct PanelView: View {
                 stripeSessionId: stripeSessionId,
                 paymentStatus: (stripeIntentId != nil || stripeSessionId != nil) ? "succeeded" : "manual",
                 receiptEmail: receiptEmail,
-                splitEntries: pendingSplitEntries
+                splitEntries: allSplitEntries
             )
 
             for (id, qty) in cart {
