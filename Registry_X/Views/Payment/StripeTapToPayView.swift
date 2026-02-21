@@ -281,11 +281,15 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
         do {
             // Create payment intent via backend
             let service = StripeNetworkService(backendURL: backendURL)
+            // Extract txnRef from description (format: "Company | TXNREF [| items]")
+            // so it appears as a searchable metadata field in the Stripe Dashboard.
+            let descParts = paymentDescription.components(separatedBy: " | ")
+            let txnRef = descParts.count >= 2 ? descParts[1] : ""
             let response = try await service.createTerminalPaymentIntent(
                 amount: amount,
                 currency: currency,
                 description: paymentDescription,
-                metadata: ["source": "Tap_to_Pay"]
+                metadata: ["source": "Tap_to_Pay", "txn_ref": txnRef]
             )
             
             self.paymentIntentId = response.intentId
