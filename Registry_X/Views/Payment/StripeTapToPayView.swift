@@ -23,7 +23,7 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
     private var paymentDescription: String
     private var locationId: String
     private var paymentIntentId: String?
-    private var onSuccess: (String) -> Void
+    private var onSuccess: (String, String?) -> Void  // (intentId, cardLast4)
     private var onCancel: () -> Void
     private var discoveredReader: Reader?
     
@@ -36,7 +36,7 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
         case failed
     }
     
-    init(backendURL: String, amount: Decimal, currency: String, description: String, locationId: String, onSuccess: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+    init(backendURL: String, amount: Decimal, currency: String, description: String, locationId: String, onSuccess: @escaping (String, String?) -> Void, onCancel: @escaping () -> Void) {
         self.backendURL = backendURL
         self.amount = amount
         self.currency = currency
@@ -336,12 +336,12 @@ class TapToPayCoordinator: NSObject, ObservableObject, ConnectionTokenProvider, 
                                     return
                                 }
                                 
-                                // Success!
+                                // Success! Extract card last 4 from terminal response.
+                                let last4 = confirmResult?.paymentMethod?.cardPresent?.last4
                                 self.paymentStatus = .success
                                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                                 if let intentId = self.paymentIntentId {
-                                    self.onSuccess(intentId)
-                                    // Auto-dismiss so the caller can chain the next step
+                                    self.onSuccess(intentId, last4)
                                     self.cleanup()
                                 }
                             }
@@ -405,13 +405,13 @@ struct StripeTapToPayView: View {
     let description: String
     let backendURL: String
     let locationId: String
-    let onSuccess: (String) -> Void
+    let onSuccess: (String, String?) -> Void  // (intentId, cardLast4)
     let onCancel: () -> Void
     
     @StateObject private var coordinator: TapToPayCoordinator
     @Environment(\.dismiss) private var dismiss
     
-    init(amount: Decimal, currency: String, description: String, backendURL: String, locationId: String = "", onSuccess: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+    init(amount: Decimal, currency: String, description: String, backendURL: String, locationId: String = "", onSuccess: @escaping (String, String?) -> Void, onCancel: @escaping () -> Void) {
         self.amount = amount
         self.currency = currency
         self.description = description

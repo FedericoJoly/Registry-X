@@ -14,6 +14,14 @@ struct SplitFailureAction: Identifiable {
     let action: () -> Void
 }
 
+/// Carries the Stripe result from a card or QR payment, bridged
+/// from the sheet onSuccess callback to the split chain via onDismiss.
+struct SplitStripeCallbackResult {
+    let intentId: String?
+    let sessionId: String?
+    let cardLast4: String?
+}
+
 /// Token passed to .sheet(item:) for Stripe Tap-to-Pay sessions.
 /// A new UUID is generated each time so SwiftUI always creates a fresh sheet instance,
 /// even when chaining sequential payments (avoids the isPresented toggle race).
@@ -110,9 +118,11 @@ struct PanelView: View {
     @State private var showingSplitReturnToSheetAlert = false
     // Holds the split callback result until the sheet is fully dismissed (avoids race condition
     // where toggling showingStripeCardPayment off→on in the same cycle leaves the sheet stuck)
-    @State private var pendingNextSplitEntryResult: (intentId: String?, sessionId: String?)? = nil
+    @State private var pendingNextSplitEntryResult: SplitStripeCallbackResult? = nil
     // Already-captured entries mid-split (for Return to Sheet recovery and Void All refunds)
     @State private var splitCollectedEntries: [(entry: SplitEntry, intentId: String?)] = []
+    // Transient last4 digits from the most recent card payment (TTP); used when building Transaction/SplitEntry
+    @State private var pendingCardLast4: String? = nil
     
     init(event: Event, onQuit: (() -> Void)? = nil) {
         self.event = event
@@ -944,6 +954,7 @@ struct PanelView: View {
             // ── 1. Success: chain next split entry ─────────────────────────────────────
             if let result = pendingNextSplitEntryResult {
                 pendingNextSplitEntryResult = nil
+                pendingCardLast4 = result.cardLast4  // make last4 available to the callback
                 let cb = pendingSplitStripeCallback
                 pendingSplitStripeCallback = nil
                 cb?(result.intentId, result.sessionId)   // safe: new job UUID = fresh sheet
@@ -957,33 +968,7 @@ struct PanelView: View {
                 splitCancel()
             }
         }) { job in
-            StripeTapToPayView(
-                amount: job.amount,
-                currency: job.currency,
-                description: job.description,
-                backendURL: job.backendURL,
-                locationId: job.locationId,
-                onSuccess: { paymentIntentId in
-                    pendingPaymentIntentId = paymentIntentId
-                    pendingSplitCardCancelCallback = nil   // tells onDismiss: success
-                    splitChargeAmount = 0
-                    splitChargeCurrency = ""
-                    if pendingSplitStripeCallback != nil {
-                        pendingNextSplitEntryResult = (intentId: paymentIntentId, sessionId: nil)
-                    } else {
-                        showingReceiptPrompt = true
-                    }
-                    // Guard: only nil the job if it's still THIS job — prevents a late
-                    // cleanup callback from the old coordinator dismissing the new card's sheet.
-                    if activeCardJob?.id == job.id { activeCardJob = nil }
-                },
-                onCancel: {
-                    // Guard: only dismiss if this job is still active.
-                    // Without this, cleanup() on the old coordinator can fire after the
-                    // new card's sheet is already presented, dismissing it accidentally.
-                    if activeCardJob?.id == job.id { activeCardJob = nil }
-                }
-            )
+            cardPaymentSheetContent(for: job)
         }
         .sheet(isPresented: $showingTapToPayEducation) {
             NavigationView {
@@ -1019,7 +1004,7 @@ struct PanelView: View {
                 onSuccess: { sessionId in
                     pendingSplitCardCancelCallback = nil
                     if pendingSplitStripeCallback != nil {
-                        pendingNextSplitEntryResult = (intentId: nil, sessionId: sessionId)
+                        pendingNextSplitEntryResult = SplitStripeCallbackResult(intentId: nil, sessionId: sessionId, cardLast4: nil)
                     } else {
                         processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: job.txnRef)
                     }
@@ -1228,30 +1213,62 @@ struct PanelView: View {
         }
         // Split Confirm Sheet (step 2 — review & pay)
         .sheet(isPresented: $showingSplitConfirmSheet) {
-            if !pendingSplitEntries.isEmpty {
-                let enabledCurrencies = event.currencies.filter { $0.isEnabled }
-                let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
-                // Include already-captured entries from prior runs so the total is correct
-                let allEntries = splitCollectedEntries.map { $0.entry } + pendingSplitEntries
-                let total = allEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
-                SplitConfirmSheet(
-                    splitEntries: allEntries,
-                    availableCurrencies: enabledCurrencies,
-                    mainCurrencyCode: mainCode,
-                    totalAmount: total,
-                    onCancel: {
-                        showingSplitConfirmSheet = false
-                        showingSplitPaySheet = true
-                    },
-                    onPay: {
-                        showingSplitConfirmSheet = false
-                        processSplitCheckout()
-                    }
-                )
-            }
+            splitConfirmSheetContent()
         }
     }
     
+    @ViewBuilder
+    private func cardPaymentSheetContent(for job: StripeCardPaymentJob) -> some View {
+        StripeTapToPayView(
+            amount: job.amount,
+            currency: job.currency,
+            description: job.description,
+            backendURL: job.backendURL,
+            locationId: job.locationId,
+            onSuccess: { paymentIntentId, cardLast4 in
+                pendingPaymentIntentId = paymentIntentId
+                pendingCardLast4 = cardLast4
+                pendingSplitCardCancelCallback = nil
+                splitChargeAmount = 0
+                splitChargeCurrency = ""
+                if pendingSplitStripeCallback != nil {
+                    pendingNextSplitEntryResult = SplitStripeCallbackResult(intentId: paymentIntentId, sessionId: nil, cardLast4: cardLast4)
+                } else {
+                    showingReceiptPrompt = true
+                }
+                if activeCardJob?.id == job.id { activeCardJob = nil }
+            },
+            onCancel: {
+                if activeCardJob?.id == job.id { activeCardJob = nil }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func splitConfirmSheetContent() -> some View {
+        if !pendingSplitEntries.isEmpty {
+            let enabledCurrencies: [Currency] = event.currencies.filter { $0.isEnabled }
+            let mainCode: String = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+            // Prior-run entries (already captured via Return-to-Sheet) + current planned entries
+            let allEntries: [SplitEntry] = splitCollectedEntries.map { $0.entry } + pendingSplitEntries
+            let total: Decimal = allEntries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+            SplitConfirmSheet(
+                splitEntries: allEntries,
+                availableCurrencies: enabledCurrencies,
+                mainCurrencyCode: mainCode,
+                totalAmount: total,
+                onCancel: {
+                    showingSplitConfirmSheet = false
+                    showingSplitPaySheet = true
+                },
+                onPay: {
+                    showingSplitConfirmSheet = false
+                    processSplitCheckout()
+                }
+            )
+        }
+    }
+
     // Helper to build line items for Stripe checkout
     private func stripeLineItems() -> [[String: Any]] {
         let activePromos = event.promos.filter { $0.isActive }
@@ -1460,6 +1477,9 @@ struct PanelView: View {
         }
         
         event.transactions.append(transaction)
+        // Store card last4 if this was a card/TTP payment
+        transaction.cardLast4 = pendingCardLast4
+        pendingCardLast4 = nil
         
         // Deduct stock quantities if stock control is enabled
         if event.isStockControlEnabled {
@@ -1667,8 +1687,16 @@ struct PanelView: View {
                         if let intentId { collectedIntentId = intentId }
                         if let sessionId { collectedSessionId = sessionId }
                         pendingSplitCardCancelCallback = nil
-                        // Track this entry as successfully captured for mid-split recovery
-                        splitCollectedEntries.append((entry: entry, intentId: intentId ?? sessionId))
+                        // Track this entry as successfully captured, baking in the card last4
+                        var capturedEntry = entry
+                        capturedEntry.cardLast4 = pendingCardLast4
+                        pendingCardLast4 = nil
+                        // Also update the live pendingSplitEntries so finaliseSplitTransaction
+                        // sees last4 for current-run entries via + pendingSplitEntries
+                        if idx < pendingSplitEntries.count {
+                            pendingSplitEntries[idx].cardLast4 = capturedEntry.cardLast4
+                        }
+                        splitCollectedEntries.append((entry: capturedEntry, intentId: intentId ?? sessionId))
                         processEntry(at: idx + 1)
                     }
                     pendingSplitCardCancelCallback = {

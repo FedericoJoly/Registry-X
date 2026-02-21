@@ -59,9 +59,16 @@ struct ReceiptTemplate {
             var rows = ""
             for entry in entries {
                 let formattedAmt = format(mainAmount: entry.amountInMain, chargeCode: entry.currencyCode)
+                // Show last 4 digits next to card label if available
+                let methodLabel: String
+                if entry.methodIcon.contains("creditcard"), let last4 = entry.cardLast4 {
+                    methodLabel = "\(entry.method) \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
+                } else {
+                    methodLabel = entry.method
+                }
                 rows += """
                     <tr>
-                        <td style="font-size: 15px; font-weight: 600; color: #333; padding-bottom: 6px;">\(entry.method)</td>
+                        <td style="font-size: 15px; font-weight: 600; color: #333; padding-bottom: 6px;">\(methodLabel)</td>
                         <td style="font-size: 15px; font-weight: 600; color: #667eea; text-align: right; padding-bottom: 6px;">\(formattedAmt)</td>
                     </tr>
                 """
@@ -79,7 +86,12 @@ struct ReceiptTemplate {
             switch transaction.paymentMethod {
             case .cash: paymentMethodDisplay = "Cash"
             case .transfer: paymentMethodDisplay = "Bank Transfer"
-            case .card: paymentMethodDisplay = "Card"
+            case .card:
+                if let last4 = transaction.cardLast4 {
+                    paymentMethodDisplay = "Card \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
+                } else {
+                    paymentMethodDisplay = "Card"
+                }
             case .other:
                 if transaction.paymentMethodIcon == "phone.fill" { paymentMethodDisplay = "Bizum" }
                 else { paymentMethodDisplay = "Other" }

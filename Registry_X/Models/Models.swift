@@ -173,6 +173,7 @@ struct SplitEntry: Codable, Identifiable {
     var amountInMain: Decimal    // share in the event main currency
     var chargeAmount: Decimal    // amount in chargeCode (the currency the customer pays in)
     var currencyCode: String     // the charge currency code
+    var cardLast4: String?       // last 4 digits of card, if paid by card (set from Stripe Terminal)
 }
 
 // MARK: - Transaction
@@ -196,6 +197,8 @@ final class Transaction {
     
     // Receipt Email (for tap-to-pay receipts)
     var receiptEmail: String?
+    // Last 4 digits of the card used (for card/TTP single payments; nil for non-card methods)
+    var cardLast4: String?
     
     // Legacy 2-slot split fields — kept ONLY for SwiftData schema safety (do not read/write).
     // All split data lives in splitEntriesJSON / splitEntries.
