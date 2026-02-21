@@ -226,21 +226,11 @@ class StripeNetworkService {
         return try decoder.decode(PaymentStatusResponse.self, from: data)
     }
     
-    /// Fetches card display info for a captured PaymentIntent.
-    /// Returns nil if the call fails.
-    /// Returns "APPLE_PAY" or "GOOGLE_PAY" for digital wallet payments.
-    /// Returns the last4 string (e.g. "1234") for physical card taps.
+    /// Fetches card last4 for a captured PaymentIntent.
+    /// Returns nil if the call fails. Backend picks FPAN over DAN where available.
     func fetchCardLast4(intentId: String) async -> String? {
         do {
             let status = try await checkPaymentStatus(intentId: intentId)
-            // Digital wallet: return a sentinel so receipt shows "Apple Pay"/"Google Pay"
-            if let wallet = status.wallet {
-                switch wallet {
-                case "apple_pay":  return "APPLE_PAY"
-                case "google_pay": return "GOOGLE_PAY"
-                default:           return "WALLET"   // other wallet types
-                }
-            }
             return status.last4
         } catch {
             print("[LAST4] fetchCardLast4 ERROR for \(intentId): \(error)")

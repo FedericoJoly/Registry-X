@@ -59,15 +59,10 @@ struct ReceiptTemplate {
             var rows = ""
             for entry in entries {
                 let formattedAmt = format(mainAmount: entry.amountInMain, chargeCode: entry.currencyCode)
-                // Show last 4 digits next to card label if available, or wallet name for Apple/Google Pay
+                // Show last 4 digits next to card label if available
                 let methodLabel: String
                 if entry.methodIcon.contains("creditcard"), let last4 = entry.cardLast4 {
-                    switch last4 {
-                    case "APPLE_PAY":  methodLabel = "Apple Pay"
-                    case "GOOGLE_PAY": methodLabel = "Google Pay"
-                    case "WALLET":     methodLabel = "Digital Wallet"
-                    default:           methodLabel = "\(entry.method) \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
-                    }
+                    methodLabel = "\(entry.method) \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
                 } else {
                     methodLabel = entry.method
                 }
@@ -93,12 +88,7 @@ struct ReceiptTemplate {
             case .transfer: paymentMethodDisplay = "Bank Transfer"
             case .card:
                 if let last4 = transaction.cardLast4 {
-                    switch last4 {
-                    case "APPLE_PAY":  paymentMethodDisplay = "Apple Pay"
-                    case "GOOGLE_PAY": paymentMethodDisplay = "Google Pay"
-                    case "WALLET":     paymentMethodDisplay = "Digital Wallet"
-                    default:           paymentMethodDisplay = "Card \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
-                    }
+                    paymentMethodDisplay = "Card \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
                 } else {
                     paymentMethodDisplay = "Card"
                 }
