@@ -1147,14 +1147,14 @@ struct PanelView: View {
                 pendingSplitCardCancelCallback = nil
                 showingSplitPaySheet = true
             }
-            Button("Void All & Refund", role: .destructive) {
-                voidAllAndReset()
-            }
             // Show Dismiss only when nothing has been charged (safe to walk away).
             // Once a payment is captured the operator MUST resolve the remaining balance.
             if splitCollectedEntries.isEmpty {
-                Button("Dismiss", role: .cancel) { }
+                Button("Cancel", role: .cancel) { }
             } else {
+                Button("Void All & Refund", role: .destructive) {
+                    voidAllAndReset()
+                }
                 Button("Accept Cash for Remaining") {
                     acceptRemainingAsCash()
                 }
