@@ -116,11 +116,12 @@ struct PanelView: View {
     // Callback to finalise split TX registration after the manual receipt step
     @State private var pendingSplitRegisterCallback: ((String?) -> Void)? = nil
     // Split failure alert (shown after 3 consecutive TTP/QR failures)
-    @State private var showingSplitCardFailureAlert = false
+    /// Two separate alerts for the 3-failure path.
+    /// if/else inside SwiftUI .alert ViewBuilders is silently ignored at runtime,
+    /// so we use two distinct alert booleans — one per capture state.
+    @State private var showSplitFailureNoCaptures = false
+    @State private var showSplitFailureWithCaptures = false
     @State private var splitFailureAlertActions: [SplitFailureAction] = []
-    /// Snapshot of !splitCollectedEntries.isEmpty taken just before the failure alert is shown.
-    /// Reading @State inside .alert ViewBuilders is unreliable — use this stable Bool instead.
-    @State private var splitFailureHasCaptures = false
     // Interrupt alert (shown when Cancel is pressed mid-split with already-captured entries)
     @State private var showingSplitReturnToSheetAlert = false
     // Holds the split callback result until the sheet is fully dismissed (avoids race condition
@@ -1132,21 +1133,24 @@ struct PanelView: View {
         } message: {
             Text("Would the customer like an email receipt?")
         }
-        // ── Split card failure alert (shown after 3 consecutive TTP/QR failures) ────
-        .alert("Payment Failed", isPresented: $showingSplitCardFailureAlert) {
+        // ── Split card failure alerts (shown after 3 consecutive TTP/QR failures) ────
+        // TWO separate alerts — one per capture state.
+        // if/else inside SwiftUI .alert ViewBuilders is silently ignored at runtime.
+        // Alert A: nothing captured yet → Cancel is safe
+        .alert("Payment Failed", isPresented: $showSplitFailureNoCaptures) {
             ForEach(splitFailureAlertActions) { action in
-                Button(action.title, role: action.isDestructive ? .destructive : (action.isCancel ? .cancel : nil)) {
-                    action.action()
-                }
+                Button(action.title) { action.action() }
             }
-            // 4th button: Void (when captures) or Cancel (when nothing captured).
-            // splitFailureHasCaptures is set synchronously before showingSplitCardFailureAlert = true,
-            // so it is stable for the lifetime of this alert — no @State re-evaluation risk.
-            if splitFailureHasCaptures {
-                Button("Void & Refund All", role: .destructive) { voidAllAndReset() }
-            } else {
-                Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This card payment failed 3 times. How would you like to proceed?")
+        }
+        // Alert B: at least 1 payment captured → must resolve, offer Void instead of Cancel
+        .alert("Payment Failed", isPresented: $showSplitFailureWithCaptures) {
+            ForEach(splitFailureAlertActions) { action in
+                Button(action.title) { action.action() }
             }
+            Button("Void & Refund All", role: .destructive) { voidAllAndReset() }
         } message: {
             Text("This card payment failed 3 times. How would you like to proceed?")
         }
@@ -1860,10 +1864,13 @@ struct PanelView: View {
                                     processEntry(at: idx + 1)
                                 },
                             ]
-                            // Capture state BEFORE presenting — splitFailureHasCaptures is
-                            // stable for the alert lifetime; no @State re-evaluation risk.
-                            splitFailureHasCaptures = !splitCollectedEntries.isEmpty
-                            showingSplitCardFailureAlert = true
+                            // Show the correct alert based on capture state.
+                            // Decision made here (before presenting) — not inside ViewBuilder.
+                            if splitCollectedEntries.isEmpty {
+                                showSplitFailureNoCaptures = true
+                            } else {
+                                showSplitFailureWithCaptures = true
+                            }
                         } else {
                             // First/second cancel: show interrupt alert so user can choose to go back
                             if !splitCollectedEntries.isEmpty {
