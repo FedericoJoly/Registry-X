@@ -1012,7 +1012,7 @@ struct TransactionCard: View {
             Divider().padding(.horizontal, 14)
 
             // ── FOOTER: Savings · Actions ─────────────────────────────────────
-            HStack(alignment: .center, spacing: 4) {
+            HStack(alignment: .center, spacing: 16) {
                 if totalSavings > 0 {
                     Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2))))
                         .font(.subheadline)
