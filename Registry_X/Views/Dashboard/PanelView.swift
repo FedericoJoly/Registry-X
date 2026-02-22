@@ -11,6 +11,7 @@ struct SplitFailureAction: Identifiable {
     let id = UUID()
     let title: String
     let isDestructive: Bool
+    var isCancel: Bool = false
     let action: () -> Void
 }
 
@@ -1131,11 +1132,10 @@ struct PanelView: View {
         // ── Split card failure alert (shown after 3 consecutive TTP/QR failures) ────
         .alert("Payment Failed", isPresented: $showingSplitCardFailureAlert) {
             ForEach(splitFailureAlertActions) { action in
-                Button(action.title, role: action.isDestructive ? .destructive : nil) {
+                Button(action.title, role: action.isDestructive ? .destructive : (action.isCancel ? .cancel : nil)) {
                     action.action()
                 }
             }
-            Button("Cancel", role: .cancel) { }
         } message: {
             Text("This card payment failed 3 times. How would you like to proceed?")
         }
@@ -1848,9 +1848,11 @@ struct PanelView: View {
                                     pendingSplitCardCancelCallback = nil
                                     processEntry(at: idx + 1)
                                 },
-                                SplitFailureAction(title: "Void & Refund All", isDestructive: true) {
-                                    voidAllAndReset()
-                                }
+                                // Void only makes sense when money was captured. When nothing
+                                // is captured, offer Cancel instead (safe to walk away).
+                                splitCollectedEntries.isEmpty
+                                    ? SplitFailureAction(title: "Cancel", isDestructive: false, isCancel: true) { }
+                                    : SplitFailureAction(title: "Void & Refund All", isDestructive: true) { voidAllAndReset() }
                             ]
                             showingSplitCardFailureAlert = true
                         } else {
