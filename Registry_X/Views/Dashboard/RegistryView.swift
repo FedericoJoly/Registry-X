@@ -38,11 +38,31 @@ struct RegistryView: View {
         Calendar.current.date(byAdding: .day, value: 1, to: selectedDayStart) ?? selectedDayStart
     }
     
-    // Transactions for selected day
+    // Transactions for selected day, sorted so refund cards appear directly above their original
     private var dayTransactions: [Transaction] {
-        event.transactions.filter { transaction in
+        let txns = event.transactions.filter { transaction in
             transaction.timestamp >= selectedDayStart && transaction.timestamp < selectedDayEnd
         }.sorted { $0.timestamp > $1.timestamp }
+
+        // Re-sort: for each refund tx, insert it immediately before its linked original
+        var result: [Transaction] = []
+        var inserted = Set<UUID>()
+        for tx in txns {
+            guard !inserted.contains(tx.id) else { continue }
+            // If this is a refund, it'll be pulled when its original is processed
+            if tx.isRefund { continue }
+            // Insert any refund linked to this transaction first
+            let refunds = txns.filter { $0.isRefund && $0.refundedTransactionId == tx.id }
+            for refund in refunds {
+                result.append(refund)
+                inserted.insert(refund.id)
+            }
+            result.append(tx)
+            inserted.insert(tx.id)
+        }
+        // Append any orphaned refund txns at the top
+        let orphans = txns.filter { $0.isRefund && !inserted.contains($0.id) }
+        return orphans + result
     }
     
     // Daily summary
@@ -721,6 +741,10 @@ struct TransactionCard: View {
     @State private var showingReceiptSheet = false
     @State private var receiptSendResult: String? = nil  // "sent" | "failed" | nil
     @State private var isSendingReceipt = false
+    @State private var showingRefundMethodSheet = false
+    @State private var showingRefundConfirmation = false
+    @State private var isProcessingRefund = false
+    @State private var refundError: String? = nil
     
     // Get payment method details from event's payment methods
     private var paymentMethodOption: PaymentMethodOption? {
@@ -830,10 +854,29 @@ struct TransactionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // ── HEADER: Time · TX ID · Total ─────────────────────────────────
+            // ── HEADER: Time · TX ID · Total / Refund badge ─────────────────
             HStack(alignment: .center) {
                 Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
                     .font(.headline)
+                    .foregroundStyle(transaction.isRefund ? .red : .primary)
+
+                if transaction.isRefund {
+                    Text("REFUND")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.red)
+                        .cornerRadius(4)
+                } else if transaction.isRefunded {
+                    Text("REFUNDED")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange)
+                        .cornerRadius(4)
+                }
 
                 Spacer()
 
@@ -852,6 +895,7 @@ struct TransactionCard: View {
 
                 Text(currencySymbol(for: transaction.currencyCode) + transaction.totalAmount.formatted(.number.precision(.fractionLength(2))))
                     .font(.headline.weight(.semibold))
+                    .foregroundStyle(transaction.isRefund ? .red : .primary)
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
@@ -1038,14 +1082,21 @@ struct TransactionCard: View {
                 .disabled(isSendingReceipt)
                 .opacity(isSendingReceipt ? 0.4 : 1.0)
 
-                // Refund (disabled — future)
-                Button(action: {}) {
+                // Refund
+                Button(action: {
+                    let isStripeMethod = transaction.paymentMethod == .card || transaction.stripePaymentIntentId != nil || transaction.stripeSessionId != nil
+                    if isStripeMethod {
+                        showingRefundMethodSheet = true
+                    } else {
+                        showingRefundConfirmation = true
+                    }
+                }) {
                     Image(systemName: "arrow.uturn.backward.circle")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(transaction.isRefunded || transaction.isRefund ? .secondary : .orange)
                 }
                 .buttonStyle(.borderless)
-                .disabled(true)
-                .opacity(0.4)
+                .disabled(transaction.isRefunded || transaction.isRefund || event.isLocked || isProcessingRefund)
+                .opacity((transaction.isRefunded || transaction.isRefund || event.isLocked) ? 0.4 : 1.0)
 
                 // Delete
                 Button(action: onDelete) {
@@ -1058,11 +1109,39 @@ struct TransactionCard: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
-        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .background(
+            transaction.isRefund
+                ? Color.red.opacity(0.07)
+                : Color(UIColor.secondarySystemGroupedBackground)
+        )
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(transaction.isRefund ? Color.red.opacity(0.3) : Color.clear, lineWidth: 1)
+        )
         // ── Receipt send sheet ────────────────────────────────────────────────
         .sheet(isPresented: $showingReceiptSheet, content: receiptSheetContent)
+        // ── Refund method sheet (card/QR) ────────────────────────────────────
+        .sheet(isPresented: $showingRefundMethodSheet) {
+            RefundMethodSheet(transaction: transaction) { method in
+                Task { await issueRefund(method: method) }
+            }
+            .presentationDetents([.height(320)])
+        }
+        // ── Cash/Bizum refund confirmation ───────────────────────────────────
+        .confirmationDialog(
+            "Refund this transaction?",
+            isPresented: $showingRefundConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Refund in Cash", role: .destructive) {
+                Task { await issueRefund(method: .cash) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The customer will receive \(currencySymbol(for: transaction.currencyCode))\(transaction.totalAmount.formatted(.number.precision(.fractionLength(2)))) back in cash.")
+        }
         .overlay(toastOverlay)
     }
     
@@ -1073,12 +1152,16 @@ struct TransactionCard: View {
             toastCapsule(icon: "doc.on.doc.fill", iconColor: .green, label: "Copied")
         }
         if let result = receiptSendResult {
-            let sent = result == "sent"
-            toastCapsule(
-                icon: sent ? "checkmark.circle.fill" : "xmark.circle.fill",
-                iconColor: sent ? .green : .red,
-                label: sent ? "Receipt sent" : "Failed to send"
-            )
+            let isOk = result == "sent" || result == "refunded"
+            let icon = isOk ? "checkmark.circle.fill" : "xmark.circle.fill"
+            let color: Color = isOk ? .green : .red
+            let label: String
+            switch result {
+            case "sent":      label = "Receipt sent"
+            case "refunded":  label = "Refund issued"
+            default:          label = refundError ?? "Failed"
+            }
+            toastCapsule(icon: icon, iconColor: color, label: label)
         }
     }
 
@@ -1124,6 +1207,29 @@ struct TransactionCard: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { receiptSendResult = nil }
             }
         }
+    }
+
+    @MainActor
+    private func issueRefund(method: RefundService.RefundMethod) async {
+        isProcessingRefund = true
+        do {
+            try await RefundService.processRefund(
+                originalTransaction: transaction,
+                event: event,
+                refundMethod: method,
+                modelContext: modelContext
+            )
+            withAnimation { receiptSendResult = "refunded" }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { receiptSendResult = nil }
+        } catch {
+            refundError = error.localizedDescription
+            withAnimation { receiptSendResult = "failed" }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                receiptSendResult = nil
+                refundError = nil
+            }
+        }
+        isProcessingRefund = false
     }
 
     private func copyToClipboard(_ text: String) {

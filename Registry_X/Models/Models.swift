@@ -199,6 +199,11 @@ final class Transaction {
     var receiptEmail: String?
     // Last 4 digits of the card used (for card/TTP single payments; nil for non-card methods)
     var cardLast4: String?
+
+    // Refund support
+    var isRefunded: Bool = false              // true on original tx once refunded
+    var isRefund: Bool = false               // true on the refund (negative) tx
+    var refundedTransactionId: UUID?         // on refund tx: UUID of the original
     
     // Legacy 2-slot split fields — kept ONLY for SwiftData schema safety (do not read/write).
     // All split data lives in splitEntriesJSON / splitEntries.

@@ -122,4 +122,60 @@ class ReceiptService {
         
         return settings[settingKey] == true
     }
+
+    // MARK: - Refund Receipt
+
+    /// Sends a refund receipt email for cash/Bizum refunds via the mailer backend.
+    @discardableResult
+    static func sendRefundReceipt(
+        originalTransaction: Transaction,
+        event: Event,
+        email: String,
+        mailerBackendURL: String = "https://registry-x-mailer-364250874736.europe-west1.run.app"
+    ) async -> (success: Bool, error: String?) {
+        guard isValidEmail(email) else { return (false, "Invalid email address") }
+
+        let htmlContent = ReceiptTemplate.generateRefundReceiptHTML(
+            event: event,
+            originalTransaction: originalTransaction,
+            customerEmail: email
+        )
+
+        let subject = "Refund — \(event.name)"
+
+        guard let url = URL(string: "\(mailerBackendURL)/send-receipt") else {
+            return (false, "Invalid backend URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload: [String: String] = [
+            "email": email,
+            "subject": subject,
+            "html": htmlContent,
+            "fromName": event.fromName ?? "Sales Team",
+            "fromEmail": event.fromEmail ?? "sales@example.com"
+        ]
+
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return (false, "Invalid response from server")
+            }
+            if httpResponse.statusCode == 200 {
+                return (true, nil)
+            } else {
+                if let errorMessage = try? JSONDecoder().decode([String: String].self, from: data),
+                   let error = errorMessage["error"] {
+                    return (false, "Server error: \(error)")
+                }
+                return (false, "Server returned error code \(httpResponse.statusCode)")
+            }
+        } catch {
+            return (false, "Network error: \(error.localizedDescription)")
+        }
+    }
 }

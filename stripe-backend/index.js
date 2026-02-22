@@ -235,6 +235,26 @@ app.get('/checkout-session/:sessionId', async (req, res) => {
   }
 });
 
+// Get PaymentIntent ID from a Checkout Session (for issuing QR refunds)
+app.get('/session-payment-intent/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent']
+    });
+    if (!session.payment_intent) {
+      return res.status(404).json({ error: 'No payment intent found for this session' });
+    }
+    const intentId = typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent.id;
+    res.json({ paymentIntentId: intentId });
+  } catch (error) {
+    console.error('Error retrieving session payment intent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Send custom receipt email for manual payments (Cash, Bizum, Transfer)
 app.post('/send-receipt', async (req, res) => {
   try {

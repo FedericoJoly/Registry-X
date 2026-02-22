@@ -327,4 +327,23 @@ class StripeNetworkService {
 
         return true
     }
+
+    // MARK: - Get PaymentIntent ID from Checkout Session (for QR refunds)
+
+    func getPaymentIntentFromSession(sessionId: String) async throws -> String {
+        guard let url = URL(string: "\(backendURL)/session-payment-intent/\(sessionId)") else {
+            throw StripeNetworkError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw StripeNetworkError.serverError("Could not retrieve PaymentIntent for session")
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let intentId = json["paymentIntentId"] as? String else {
+            throw StripeNetworkError.invalidResponse
+        }
+        return intentId
+    }
 }

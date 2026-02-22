@@ -182,4 +182,77 @@ struct ReceiptTemplate {
     static func generateSubject(eventName: String) -> String {
         return "\(eventName) - Receipt"
     }
+
+    // MARK: - Refund Receipt
+
+    /// Generates an HTML refund receipt (red-accented, same layout as sale receipt).
+    static func generateRefundReceiptHTML(
+        event: Event,
+        originalTransaction: Transaction,
+        customerEmail: String
+    ) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+        let formattedDate = dateFormatter.string(from: Date())
+
+        let currencySymbol = event.currencies.first(where: { $0.code == originalTransaction.currencyCode })?.symbol ?? originalTransaction.currencyCode
+        let formattedAmount = "\(currencySymbol)\(originalTransaction.totalAmount.formatted(.number.precision(.fractionLength(2))))"
+        let companyName = event.companyName ?? event.name
+
+        var lineItemsHTML = ""
+        for item in originalTransaction.lineItems {
+            let itemTotal = item.unitPrice * Decimal(item.quantity)
+            let displayName = item.subgroup != nil ? "\(item.productName) (\(item.subgroup!))" : item.productName
+            lineItemsHTML += """
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">\(item.quantity)x</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; text-decoration: line-through; color: #e53935;">\(displayName)</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: #e53935;">-\(currencySymbol)\(itemTotal.formatted(.number.precision(.fractionLength(2))))</td>
+            </tr>
+            """
+        }
+
+        let ref = originalTransaction.transactionRef.map { "Ref: \($0)" } ?? ""
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
+          <div style="max-width: 500px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <div style="background: #e53935; padding: 30px 24px; text-align: center;">
+              <p style="color: rgba(255,255,255,0.8); margin: 0 0 4px; font-size: 14px;">\(companyName)</p>
+              <h1 style="color: white; font-size: 26px; margin: 0 0 4px;">REFUND</h1>
+              <p style="color: rgba(255,255,255,0.8); margin: 0; font-size: 13px;">\(event.name)</p>
+            </div>
+            <div style="padding: 24px;">
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+                <thead>
+                  <tr style="background: #f9f9f9;">
+                    <th style="padding: 8px; text-align: left; font-size: 12px; color: #666;">QTY</th>
+                    <th style="padding: 8px; text-align: left; font-size: 12px; color: #666;">ITEM</th>
+                    <th style="padding: 8px; text-align: right; font-size: 12px; color: #666;">AMOUNT</th>
+                  </tr>
+                </thead>
+                <tbody>\(lineItemsHTML)</tbody>
+              </table>
+              <div style="background: #fce4e4; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 16px;">
+                <p style="margin: 0; color: #b71c1c; font-size: 13px;">Total Refunded</p>
+                <p style="margin: 4px 0 0; font-size: 28px; font-weight: bold; color: #e53935;">-\(formattedAmount)</p>
+              </div>
+              <table style="width: 100%; font-size: 13px; color: #666;">
+                <tr><td>Date</td><td style="text-align: right;">\(formattedDate)</td></tr>
+                <tr><td>To</td><td style="text-align: right;">\(customerEmail)</td></tr>
+                \(ref.isEmpty ? "" : "<tr><td>Reference</td><td style=\"text-align: right;\">\(ref)</td></tr>")
+              </table>
+            </div>
+            <div style="background: #f9f9f9; padding: 16px; text-align: center;">
+              <p style="color: #999; font-size: 12px; margin: 0;">Thank you. Your refund has been processed.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+        """
+    }
 }
