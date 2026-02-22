@@ -494,69 +494,70 @@ struct TotalsView: View {
             } else {
                 EventInfoHeader(event: event, userFullName: "Operator", onQuit: onQuit)
             }
-            
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Blue Header Box
-                    TotalsHeaderBox(
-                        eventName: event.name,
-                        totalAmount: totalAmount,
-                        mainCurrencySymbol: mainCurrencySymbol,
-                        mainCurrencyCode: mainCurrencyCode,
-                        categoryTotals: categoryTotals
-                    )
-                    .padding(.horizontal)
-                    .padding(.top)
-                    
-                    // ── Tab header (3-visible, swipeable) ────────────────────
-                    let tabWidth = UIScreen.main.bounds.width / 3
-                    ScrollViewReader { proxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 0) {
-                                ForEach(TotalsTab.allCases, id: \.self) { tab in
-                                    Button(action: { withAnimation { selectedTab = tab } }) {
-                                        Text(tab.title)
-                                            .font(.headline)
-                                            .foregroundStyle(selectedTab == tab ? .blue : .secondary)
-                                            .padding(.bottom, 6)
-                                            .overlay(alignment: .bottom) {
-                                                if selectedTab == tab {
-                                                    Rectangle().fill(Color.blue).frame(height: 2)
-                                                }
-                                            }
-                                    }
-                                    .frame(width: tabWidth)
-                                    .id(tab)
-                                }
-                            }
-                        }
-                        .onChange(of: selectedTab) { _, newTab in
-                            withAnimation { proxy.scrollTo(newTab, anchor: .center) }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top)
 
-                    // ── Swipeable content ─────────────────────────────────────
-                    TabView(selection: Binding(
-                        get: { selectedTab.rawValue },
-                        set: { selectedTab = TotalsTab(rawValue: $0) ?? .currencies }
-                    )) {
-                        CurrenciesView(groupedByCurrency: groupedByCurrency)
-                            .tag(TotalsTab.currencies.rawValue)
-                        TotalsProductsView(groupedByProduct: groupedByProduct, event: event)
-                            .tag(TotalsTab.products.rawValue)
-                        TotalsGroupsView(
-                            groupedByCategory: groupedByCategory,
-                            groupedBySubgroup: groupedBySubgroup,
-                            event: event
-                        )
-                        .tag(TotalsTab.groups.rawValue)
+            // Blue Header Box (scrollable on its own)
+            ScrollView {
+                TotalsHeaderBox(
+                    eventName: event.name,
+                    totalAmount: totalAmount,
+                    mainCurrencySymbol: mainCurrencySymbol,
+                    mainCurrencyCode: mainCurrencyCode,
+                    categoryTotals: categoryTotals
+                )
+                .padding(.horizontal)
+                .padding(.top)
+                .padding(.bottom, 8)
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .fixedSize(horizontal: false, vertical: true)
+
+            // ── Tab header (3-visible, swipeable) ────────────────────────
+            let tabWidth = UIScreen.main.bounds.width / 3
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(TotalsTab.allCases, id: \.self) { tab in
+                            Button(action: { withAnimation { selectedTab = tab } }) {
+                                Text(tab.title)
+                                    .font(.headline)
+                                    .foregroundStyle(selectedTab == tab ? .blue : .secondary)
+                                    .padding(.bottom, 6)
+                                    .overlay(alignment: .bottom) {
+                                        if selectedTab == tab {
+                                            Rectangle().fill(Color.blue).frame(height: 2)
+                                        }
+                                    }
+                            }
+                            .frame(width: tabWidth)
+                            .id(tab)
+                        }
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .animation(.easeInOut, value: selectedTab)
+                }
+                .onChange(of: selectedTab) { _, newTab in
+                    withAnimation { proxy.scrollTo(newTab, anchor: .center) }
                 }
             }
+            .padding(.horizontal)
+            .padding(.top, 8)
+
+            // ── Swipeable content (outside ScrollView so TabView gets real height) ──
+            TabView(selection: Binding(
+                get: { selectedTab.rawValue },
+                set: { selectedTab = TotalsTab(rawValue: $0) ?? .currencies }
+            )) {
+                CurrenciesView(groupedByCurrency: groupedByCurrency)
+                    .tag(TotalsTab.currencies.rawValue)
+                TotalsProductsView(groupedByProduct: groupedByProduct, event: event)
+                    .tag(TotalsTab.products.rawValue)
+                TotalsGroupsView(
+                    groupedByCategory: groupedByCategory,
+                    groupedBySubgroup: groupedBySubgroup,
+                    event: event
+                )
+                .tag(TotalsTab.groups.rawValue)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .animation(.easeInOut, value: selectedTab)
         }
         .background(Color(UIColor.systemGroupedBackground))
     }
