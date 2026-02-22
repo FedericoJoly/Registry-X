@@ -1141,28 +1141,23 @@ struct PanelView: View {
         }
         // ── Mid-split interrupt alert (Cancel pressed during active split) ────────────
         .alert("Payment Interrupted", isPresented: $showingSplitReturnToSheetAlert) {
+            // This alert is ONLY triggered when splitCollectedEntries is non-empty (~line 1847).
+            // Don't use @State inside alert ViewBuilders — SwiftUI re-evaluates lazily
+            // and may read stale values. Hardcode the correct buttons for this path.
             Button("Return to Split Sheet") {
                 pendingSplitEntries = []
                 pendingSplitStripeCallback = nil
                 pendingSplitCardCancelCallback = nil
                 showingSplitPaySheet = true
             }
-            // Show Dismiss only when nothing has been charged (safe to walk away).
-            // Once a payment is captured the operator MUST resolve the remaining balance.
-            if splitCollectedEntries.isEmpty {
-                Button("Cancel", role: .cancel) { }
-            } else {
-                Button("Void All & Refund", role: .destructive) {
-                    voidAllAndReset()
-                }
-                Button("Accept Cash for Remaining") {
-                    acceptRemainingAsCash()
-                }
+            Button("Void All & Refund", role: .destructive) {
+                voidAllAndReset()
+            }
+            Button("Accept Cash for Remaining") {
+                acceptRemainingAsCash()
             }
         } message: {
-            Text(splitCollectedEntries.isEmpty
-                ? "The card payment was cancelled."
-                : "\(splitCollectedEntries.count) payment(s) already captured. Collect remaining in cash, return to the split sheet to reconfigure, or void all and refund.")
+            Text("Payment(s) already captured. Collect the remaining balance in cash, return to the split sheet to reconfigure, or void all and refund.")
         }
         .sheet(isPresented: $showingManualReceiptEmailSheet) {
             SimpleEmailSheet(
@@ -1546,8 +1541,11 @@ struct PanelView: View {
         let cashIcon  = cashOption?.icon  ?? "banknote"
         let cashColor = cashOption?.colorHex ?? "#4CAF50"
 
-        // Convert every still-pending entry to a Cash entry (keeping the same amount).
-        let cashEntries: [SplitEntry] = pendingSplitEntries.map { entry in
+        // Convert ONLY the still-pending entries (those not yet in splitCollectedEntries) to cash.
+        // capturedEntries already accounts for the captured portion — don't double-count.
+        let capturedCount = splitCollectedEntries.count
+        let remainingPending = Array(pendingSplitEntries.dropFirst(capturedCount))
+        let cashEntries: [SplitEntry] = remainingPending.map { entry in
             SplitEntry(
                 method: cashName,
                 methodIcon: cashIcon,
@@ -1833,6 +1831,20 @@ struct PanelView: View {
                                     showingSplitPaySheet = true
                                 },
                                 SplitFailureAction(title: "Accept \(amtStr) as Cash", isDestructive: false) {
+                                    // Mark this entry as Cash so finaliseSplitTransaction records it correctly.
+                                    let cashOpt = allEnabledPaymentMethods.first(where: {
+                                        $0.icon.contains("banknote") || $0.name.lowercased() == "cash"
+                                    })
+                                    if idx < pendingSplitEntries.count {
+                                        pendingSplitEntries[idx] = SplitEntry(
+                                            method: cashOpt?.name ?? "Cash",
+                                            methodIcon: cashOpt?.icon ?? "banknote",
+                                            colorHex: cashOpt?.colorHex ?? "#4CAF50",
+                                            amountInMain: pendingSplitEntries[idx].amountInMain,
+                                            chargeAmount: pendingSplitEntries[idx].chargeAmount,
+                                            currencyCode: pendingSplitEntries[idx].currencyCode
+                                        )
+                                    }
                                     pendingSplitCardCancelCallback = nil
                                     processEntry(at: idx + 1)
                                 },
