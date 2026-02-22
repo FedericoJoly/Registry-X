@@ -500,28 +500,30 @@ struct RegistryView: View {
                 .padding(.top)
                 
                 // ── Tab header: shows 3, 4th slides in on swipe ─────────────
-                let tabWidth = UIScreen.main.bounds.width / 3
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 0) {
-                            ForEach(RegistryTab.allCases, id: \.self) { tab in
-                                Button(action: {
-                                    withAnimation { selectedTab = tab }
-                                }) {
-                                    Text(tab.title)
-                                        .font(.headline)
-                                        .foregroundStyle(selectedTab == tab ? .green : .secondary)
-                                        .padding(.bottom, 6)
-                                        .overlay(alignment: .bottom) {
-                                            if selectedTab == tab {
-                                                Rectangle().fill(Color.green).frame(height: 2)
+                        GeometryReader { geo in
+                            HStack(spacing: 0) {
+                                ForEach(RegistryTab.allCases, id: \.self) { tab in
+                                    Button(action: {
+                                        withAnimation { selectedTab = tab }
+                                    }) {
+                                        Text(tab.title)
+                                            .font(.headline)
+                                            .foregroundStyle(selectedTab == tab ? .green : .secondary)
+                                            .padding(.bottom, 6)
+                                            .overlay(alignment: .bottom) {
+                                                if selectedTab == tab {
+                                                    Rectangle().fill(Color.green).frame(height: 2)
+                                                }
                                             }
-                                        }
+                                    }
+                                    .frame(width: geo.size.width / 3)
+                                    .id(tab)
                                 }
-                                .frame(width: tabWidth)
-                                .id(tab)
                             }
                         }
+                        .frame(height: 32)
                     }
                     .onChange(of: selectedTab) { _, newTab in
                         withAnimation {

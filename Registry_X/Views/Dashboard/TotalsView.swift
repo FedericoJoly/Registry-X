@@ -512,26 +512,28 @@ struct TotalsView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             // ── Tab header (3-visible, swipeable) ────────────────────────
-            let tabWidth = UIScreen.main.bounds.width / 3
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(TotalsTab.allCases, id: \.self) { tab in
-                            Button(action: { withAnimation { selectedTab = tab } }) {
-                                Text(tab.title)
-                                    .font(.headline)
-                                    .foregroundStyle(selectedTab == tab ? .blue : .secondary)
-                                    .padding(.bottom, 6)
-                                    .overlay(alignment: .bottom) {
-                                        if selectedTab == tab {
-                                            Rectangle().fill(Color.blue).frame(height: 2)
+                    GeometryReader { geo in
+                        HStack(spacing: 0) {
+                            ForEach(TotalsTab.allCases, id: \.self) { tab in
+                                Button(action: { withAnimation { selectedTab = tab } }) {
+                                    Text(tab.title)
+                                        .font(.headline)
+                                        .foregroundStyle(selectedTab == tab ? .blue : .secondary)
+                                        .padding(.bottom, 6)
+                                        .overlay(alignment: .bottom) {
+                                            if selectedTab == tab {
+                                                Rectangle().fill(Color.blue).frame(height: 2)
+                                            }
                                         }
-                                    }
+                                }
+                                .frame(width: geo.size.width / 3)
+                                .id(tab)
                             }
-                            .frame(width: tabWidth)
-                            .id(tab)
                         }
                     }
+                    .frame(height: 32)
                 }
                 .onChange(of: selectedTab) { _, newTab in
                     withAnimation { proxy.scrollTo(newTab, anchor: .center) }
