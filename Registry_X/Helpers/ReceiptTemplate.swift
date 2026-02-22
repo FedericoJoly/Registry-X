@@ -203,12 +203,12 @@ struct ReceiptTemplate {
         var lineItemsHTML = ""
         for item in originalTransaction.lineItems {
             let itemTotal = item.unitPrice * Decimal(item.quantity)
-            let displayName = item.subgroup != nil ? "\(item.productName) (\(item.subgroup!))" : item.productName
+            let displayName = item.productName  // subgroup removed per UX feedback
             lineItemsHTML += """
             <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #eee;">\(item.quantity)x</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee; text-decoration: line-through; color: #e53935;">\(displayName)</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: #e53935;">-\(currencySymbol)\(itemTotal.formatted(.number.precision(.fractionLength(2))))</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; text-decoration: line-through; color: #E65100;">\(displayName)</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: #E65100;">-\(currencySymbol)\(itemTotal.formatted(.number.precision(.fractionLength(2))))</td>
             </tr>
             """
         }
@@ -221,7 +221,7 @@ struct ReceiptTemplate {
         <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
         <body style="font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
           <div style="max-width: 500px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-            <div style="background: #e53935; padding: 30px 24px; text-align: center;">
+            <div style="background: #FF6D00; padding: 30px 24px; text-align: center;">
               <p style="color: rgba(255,255,255,0.8); margin: 0 0 4px; font-size: 14px;">\(companyName)</p>
               <h1 style="color: white; font-size: 26px; margin: 0 0 4px;">REFUND</h1>
               <p style="color: rgba(255,255,255,0.8); margin: 0; font-size: 13px;">\(event.name)</p>
@@ -237,14 +237,14 @@ struct ReceiptTemplate {
                 </thead>
                 <tbody>\(lineItemsHTML)</tbody>
               </table>
-              <div style="background: #fce4e4; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 16px;">
-                <p style="margin: 0; color: #b71c1c; font-size: 13px;">Total Refunded</p>
-                <p style="margin: 4px 0 0; font-size: 28px; font-weight: bold; color: #e53935;">-\(formattedAmount)</p>
+              <div style="background: #FFF3E0; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 16px;">
+                <p style="margin: 0; color: #E65100; font-size: 13px;">Total Refunded</p>
+                <p style="margin: 4px 0 0; font-size: 28px; font-weight: bold; color: #FF6D00;">\(formattedAmount)</p>
               </div>
               <table style="width: 100%; font-size: 13px; color: #666;">
                 <tr><td>Date</td><td style="text-align: right;">\(formattedDate)</td></tr>
                 <tr><td>To</td><td style="text-align: right;">\(customerEmail)</td></tr>
-                \(ref.isEmpty ? "" : "<tr><td>Reference</td><td style=\"text-align: right;\">\(ref)</td></tr>")
+                \(ref.isEmpty ? "" : "<tr><td>Transaction ID</td><td style=\"text-align: right;\">\(ref)</td></tr>")
               </table>
             </div>
             <div style="background: #f9f9f9; padding: 16px; text-align: center;">

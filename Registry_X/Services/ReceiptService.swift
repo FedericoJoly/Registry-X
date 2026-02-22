@@ -141,7 +141,7 @@ class ReceiptService {
             customerEmail: email
         )
 
-        let subject = "Refund — \(event.name)"
+        let subject = "\(event.name) — Refund"
 
         guard let url = URL(string: "\(mailerBackendURL)/send-receipt") else {
             return (false, "Invalid backend URL")
