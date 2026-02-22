@@ -49,9 +49,7 @@ struct RegistryView: View {
         var inserted = Set<UUID>()
         for tx in txns {
             guard !inserted.contains(tx.id) else { continue }
-            // If this is a refund, it'll be pulled when its original is processed
             if tx.isRefund { continue }
-            // Insert any refund linked to this transaction first
             let refunds = txns.filter { $0.isRefund && $0.refundedTransactionId == tx.id }
             for refund in refunds {
                 result.append(refund)
@@ -60,9 +58,18 @@ struct RegistryView: View {
             result.append(tx)
             inserted.insert(tx.id)
         }
-        // Append any orphaned refund txns at the top
         let orphans = txns.filter { $0.isRefund && !inserted.contains($0.id) }
         return orphans + result
+    }
+
+    // 3-tab sliding window: always shows 3 consecutive tabs centred on selection
+    private var visibleTabWindow: [RegistryTab] {
+        let all = RegistryTab.allCases
+        let count = all.count
+        let windowSize = min(3, count)
+        let idx = selectedTab.rawValue
+        let start = max(0, min(idx - 1, count - windowSize))
+        return Array(all[start..<(start + windowSize)])
     }
     
     // Daily summary
@@ -519,12 +526,20 @@ struct RegistryView: View {
                 )
                 .padding(.top)
                 
-                // ── Tab header: shows 3, 4th slides in on swipe ─────────────
+                // ── Tab header: 3-visible window with chevron indicators ──────
                 HStack(spacing: 0) {
-                    ForEach(RegistryTab.allCases, id: \.self) { tab in
-                        Button(action: {
-                            withAnimation { selectedTab = tab }
-                        }) {
+                    // Left chevron — visible when window doesn't start at first tab
+                    let allTabs = RegistryTab.allCases
+                    let windowFirst = visibleTabWindow.first
+                    let windowLast  = visibleTabWindow.last
+
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(windowFirst != allTabs.first ? Color.secondary : Color.clear)
+                        .frame(width: 20)
+
+                    ForEach(visibleTabWindow, id: \.self) { tab in
+                        Button(action: { withAnimation { selectedTab = tab } }) {
                             Text(tab.title)
                                 .font(.headline)
                                 .foregroundStyle(selectedTab == tab ? .green : .secondary)
@@ -538,6 +553,12 @@ struct RegistryView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
+
+                    // Right chevron — visible when window doesn't end at last tab
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(windowLast != allTabs.last ? Color.secondary : Color.clear)
+                        .frame(width: 20)
                 }
                 .padding(.horizontal)
 

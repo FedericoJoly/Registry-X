@@ -511,9 +511,23 @@ struct TotalsView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .fixedSize(horizontal: false, vertical: true)
 
-            // ── Tab header (3-visible, swipeable) ────────────────────────
+            // ── Tab header: 3-visible window with chevron indicators ──────────
             HStack(spacing: 0) {
-                ForEach(TotalsTab.allCases, id: \.self) { tab in
+                let allTabs = TotalsTab.allCases
+                let count   = allTabs.count
+                let windowSize = min(3, count)
+                let idx   = selectedTab.rawValue
+                let start = max(0, min(idx - 1, count - windowSize))
+                let windowTabs  = Array(allTabs[start..<(start + windowSize)])
+                let windowFirst = windowTabs.first
+                let windowLast  = windowTabs.last
+
+                Image(systemName: "chevron.left")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(windowFirst != allTabs.first ? Color.secondary : Color.clear)
+                    .frame(width: 20)
+
+                ForEach(windowTabs, id: \.self) { tab in
                     Button(action: { withAnimation { selectedTab = tab } }) {
                         Text(tab.title)
                             .font(.headline)
@@ -528,9 +542,15 @@ struct TotalsView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(windowLast != allTabs.last ? Color.secondary : Color.clear)
+                    .frame(width: 20)
             }
             .padding(.horizontal)
             .padding(.top, 8)
+
 
 
             // ── Swipeable content (outside ScrollView so TabView gets real height) ──
