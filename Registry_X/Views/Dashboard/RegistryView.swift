@@ -13,10 +13,20 @@ struct RegistryView: View {
     @State private var showingDeleteConfirmation = false
     @State private var selectedTab: RegistryTab = .transactions
     
-    enum RegistryTab {
+    enum RegistryTab: Int, CaseIterable {
         case transactions
+        case currencies
         case products
         case groups
+
+        var title: String {
+            switch self {
+            case .transactions: return "Transactions"
+            case .currencies:   return "Currencies"
+            case .products:     return "Products"
+            case .groups:       return "Groups"
+            }
+        }
     }
     
     // Normalize date to start of day
@@ -52,6 +62,54 @@ struct RegistryView: View {
     // Check if there are any transactions before selected date
     private var hasEarlierTransactions: Bool {
         event.transactions.contains { $0.timestamp < selectedDayStart }
+    }
+
+    // MARK: - Day Currency Breakdown (mirrors TotalsView.groupedByCurrency but day-scoped)
+    private var groupedByCurrencyForDay: [TotalsView.CurrencyGroup] {
+        var currencyDict: [String: [(method: String, quantity: Decimal, subtotal: Decimal)]] = [:]
+        for transaction in dayTransactions {
+            let totalQty = Decimal(transaction.lineItems.reduce(0) { $0 + $1.quantity })
+            if transaction.isNWaySplit {
+                let entries = transaction.splitEntries
+                let entryTotal = entries.reduce(Decimal(0)) { $0 + $1.amountInMain }
+                for entry in entries {
+                    let ratio = entryTotal > 0 ? entry.amountInMain / entryTotal : (Decimal(1) / Decimal(entries.count))
+                    if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
+                    currencyDict[transaction.currencyCode]!.append((method: entry.method, quantity: totalQty * ratio, subtotal: entry.amountInMain))
+                }
+            } else {
+                let methodName = registryPaymentMethodName(transaction.paymentMethod, icon: transaction.paymentMethodIcon)
+                if currencyDict[transaction.currencyCode] == nil { currencyDict[transaction.currencyCode] = [] }
+                currencyDict[transaction.currencyCode]!.append((method: methodName, quantity: totalQty, subtotal: transaction.totalAmount))
+            }
+        }
+        var result: [TotalsView.CurrencyGroup] = []
+        for (code, txns) in currencyDict {
+            var methodDict: [String: (units: Decimal, subtotal: Decimal)] = [:]
+            var total = Decimal(0)
+            for t in txns {
+                total += t.subtotal
+                if let ex = methodDict[t.method] { methodDict[t.method] = (ex.units + t.quantity, ex.subtotal + t.subtotal) }
+                else { methodDict[t.method] = (t.quantity, t.subtotal) }
+            }
+            let pms = methodDict.map { TotalsView.PaymentMethodRow(methodName: $0.key, units: $0.value.units, subtotal: $0.value.subtotal) }.sorted { $0.methodName < $1.methodName }
+            let sym = event.currencies.first(where: { $0.code == code })?.symbol ?? code
+            result.append(TotalsView.CurrencyGroup(currencyCode: code, currencySymbol: sym, total: total, paymentMethods: pms))
+        }
+        return result.sorted { $0.currencyCode < $1.currencyCode }
+    }
+
+    private func registryPaymentMethodName(_ method: PaymentMethod, icon: String? = nil) -> String {
+        if let icon = icon {
+            if icon.contains("phone") { return "Bizum" }
+            if icon.contains("qrcode") { return "QR" }
+        }
+        switch method {
+        case .cash: return "Cash"
+        case .card: return "Card"
+        case .transfer: return "Transfer"
+        case .other: return "QR"
+        }
     }
     
     // MARK: - Groups Data Structures
@@ -441,58 +499,44 @@ struct RegistryView: View {
                 )
                 .padding(.top)
                 
-                // Tabs: Transactions | Products | Groups
-                HStack(spacing: 0) {
-                    Button(action: { selectedTab = .transactions }) {
-                        Text("Transactions")
-                            .font(.headline)
-                            .foregroundStyle(selectedTab == .transactions ? .green : .secondary)
-                            .padding(.bottom, 6)
-                            .overlay(alignment: .bottom) {
-                                if selectedTab == .transactions {
-                                    Rectangle()
-                                        .fill(Color.green)
-                                        .frame(height: 2)
+                // ── Tab header: shows 3, 4th slides in on swipe ─────────────
+                let tabWidth = UIScreen.main.bounds.width / 3
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(RegistryTab.allCases, id: \.self) { tab in
+                                Button(action: {
+                                    withAnimation { selectedTab = tab }
+                                }) {
+                                    Text(tab.title)
+                                        .font(.headline)
+                                        .foregroundStyle(selectedTab == tab ? .green : .secondary)
+                                        .padding(.bottom, 6)
+                                        .overlay(alignment: .bottom) {
+                                            if selectedTab == tab {
+                                                Rectangle().fill(Color.green).frame(height: 2)
+                                            }
+                                        }
                                 }
+                                .frame(width: tabWidth)
+                                .id(tab)
                             }
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    
-                    Button(action: { selectedTab = .products }) {
-                        Text("Products")
-                            .font(.headline)
-                            .foregroundStyle(selectedTab == .products ? .green : .secondary)
-                            .padding(.bottom, 6)
-                            .overlay(alignment: .bottom) {
-                                if selectedTab == .products {
-                                    Rectangle()
-                                        .fill(Color.green)
-                                        .frame(height: 2)
-                                }
-                            }
+                    .onChange(of: selectedTab) { _, newTab in
+                        withAnimation {
+                            proxy.scrollTo(newTab, anchor: .center)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    
-                    Button(action: { selectedTab = .groups }) {
-                        Text("Groups")
-                            .font(.headline)
-                            .foregroundStyle(selectedTab == .groups ? .green : .secondary)
-                            .padding(.bottom, 6)
-                            .overlay(alignment: .bottom) {
-                                if selectedTab == .groups {
-                                    Rectangle()
-                                        .fill(Color.green)
-                                        .frame(height: 2)
-                                }
-                            }
-                    }
-                    .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal)
-                
-                // Content based on selected tab
-                if selectedTab == .transactions {
-                    // Transaction List
+
+                // ── Swipeable content ─────────────────────────────────────────
+                TabView(selection: Binding(
+                    get: { selectedTab.rawValue },
+                    set: { selectedTab = RegistryTab(rawValue: $0) ?? .transactions }
+                )) {
+                    // Transactions
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             if dayTransactions.isEmpty {
@@ -516,21 +560,31 @@ struct RegistryView: View {
                             }
                         }
                         .padding(.horizontal)
+                        .padding(.bottom)
                     }
-                } else if selectedTab == .products {
-                    // Products View
+                    .tag(RegistryTab.transactions.rawValue)
+
+                    // Currencies
+                    CurrenciesView(groupedByCurrency: groupedByCurrencyForDay)
+                        .tag(RegistryTab.currencies.rawValue)
+
+                    // Products
                     ProductsView(
                         groupedByProduct: groupedByProduct,
                         event: event
                     )
-                } else {
-                    // Groups View
+                    .tag(RegistryTab.products.rawValue)
+
+                    // Groups
                     GroupsView(
                         groupedByCategory: groupedByCategory,
                         groupedBySubgroup: groupedBySubgroup,
                         event: event
                     )
+                    .tag(RegistryTab.groups.rawValue)
                 }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut, value: selectedTab)
             }
         }
         .background(Color(UIColor.systemGroupedBackground))
@@ -662,6 +716,9 @@ struct TransactionCard: View {
     @State private var isEditingNote = false
     @State private var editedNoteText = ""
     @State private var showNoteCopied = false
+    @State private var showingReceiptSheet = false
+    @State private var receiptSendResult: String? = nil  // "sent" | "failed" | nil
+    @State private var isSendingReceipt = false
     
     // Get payment method details from event's payment methods
     private var paymentMethodOption: PaymentMethodOption? {
@@ -890,28 +947,42 @@ struct TransactionCard: View {
             .padding(.vertical, 10)
 
             // ── NOTE ──────────────────────────────────────────────────────────
-            if let note = transaction.note, !note.isEmpty {
+            // Show inline editor when isEditingNote=true (even if note is currently empty),
+            // or show the saved note text when not editing.
+            let hasNote = !(transaction.note ?? "").isEmpty
+            if isEditingNote || hasNote {
                 Divider().padding(.horizontal, 14)
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "pencil")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isEditingNote ? Color.orange : Color.secondary)
                         .font(.footnote)
+                        .padding(.top, 2)
                     if isEditingNote {
-                        TextField("Note", text: $editedNoteText, axis: .vertical)
+                        TextField("Add a note…", text: $editedNoteText, axis: .vertical)
                             .font(.subheadline)
                             .textFieldStyle(.plain)
                             .lineLimit(1...5)
+                            .submitLabel(.done)
+                            .onSubmit { saveNote() }
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Save") { saveNote() }
+                                        .bold()
+                                        .foregroundStyle(Color.orange)
+                                }
+                            }
                         Button(action: saveNote) {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Color.orange)
                         }
                         .buttonStyle(.borderless)
                     } else {
-                        Text(note)
+                        Text(transaction.note ?? "")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .onTapGesture { copyToClipboard(note) }
+                            .onTapGesture { copyToClipboard(transaction.note ?? "") }
                             .onLongPressGesture { startEditingNote() }
                     }
                 }
@@ -948,14 +1019,22 @@ struct TransactionCard: View {
 
                 Spacer()
 
-                // Send receipt (disabled — future)
-                Button(action: {}) {
-                    Image(systemName: "envelope")
-                        .foregroundStyle(.secondary)
+                // Edit note
+                Button(action: startEditingNote) {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(Color.orange)
                 }
                 .buttonStyle(.borderless)
-                .disabled(true)
-                .opacity(0.4)
+                .disabled(event.isLocked)
+
+                // Send receipt
+                Button(action: { showingReceiptSheet = true }) {
+                    Image(systemName: "envelope")
+                        .foregroundStyle(Color.blue)
+                }
+                .buttonStyle(.borderless)
+                .disabled(isSendingReceipt)
+                .opacity(isSendingReceipt ? 0.4 : 1.0)
 
                 // Refund (disabled — future)
                 Button(action: {}) {
@@ -980,32 +1059,71 @@ struct TransactionCard: View {
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
-        .overlay(
-            Group {
-                if showNoteCopied {
-                    VStack {
-                        HStack(spacing: 8) {
-                            Image(systemName: "doc.on.doc.fill")
-                                .foregroundStyle(.green)
-                            Text("Copied")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(Color(UIColor.systemBackground))
-                                .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
-                        )
-                        .padding(.bottom, 8)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-        )
+        // ── Receipt send sheet ────────────────────────────────────────────────
+        .sheet(isPresented: $showingReceiptSheet, content: receiptSheetContent)
+        .overlay(toastOverlay)
     }
     
+    // MARK: - Extracted helpers (break up body for type-checker)
+
+    @ViewBuilder private var toastOverlay: some View {
+        if showNoteCopied {
+            toastCapsule(icon: "doc.on.doc.fill", iconColor: .green, label: "Copied")
+        }
+        if let result = receiptSendResult {
+            let sent = result == "sent"
+            toastCapsule(
+                icon: sent ? "checkmark.circle.fill" : "xmark.circle.fill",
+                iconColor: sent ? .green : .red,
+                label: sent ? "Receipt sent" : "Failed to send"
+            )
+        }
+    }
+
+    @ViewBuilder private func toastCapsule(icon: String, iconColor: Color, label: String) -> some View {
+        VStack {
+            HStack(spacing: 8) {
+                Image(systemName: icon).foregroundStyle(iconColor)
+                Text(label).font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color(UIColor.systemBackground)).shadow(color: .black.opacity(0.2), radius: 8, y: 3))
+            .padding(.bottom, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    @ViewBuilder private func receiptSheetContent() -> some View {
+        SimpleEmailSheet(
+            onComplete: { email in sendReceipt(to: email) },
+            onCancel: { showingReceiptSheet = false },
+            initialEmail: transaction.receiptEmail ?? ""
+        )
+        .presentationDetents([.height(320)])
+    }
+
+    private func sendReceipt(to email: String) {
+        showingReceiptSheet = false
+        isSendingReceipt = true
+        Task {
+            let result = await ReceiptService.sendCustomReceipt(
+                transaction: transaction, event: event, email: email)
+            await MainActor.run {
+                isSendingReceipt = false
+                if result.success {
+                    transaction.receiptEmail = email
+                    try? modelContext.save()
+                    receiptSendResult = "sent"
+                } else {
+                    receiptSendResult = "failed"
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { receiptSendResult = nil }
+            }
+        }
+    }
+
     private func copyToClipboard(_ text: String) {
         UIPasteboard.general.string = text
         

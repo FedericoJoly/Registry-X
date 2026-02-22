@@ -1586,40 +1586,11 @@ struct PanelView: View {
         let txnRefToUse  = pendingTxnRef ?? generateTransactionRef()
         let firstIntentId = splitCollectedEntries.compactMap { $0.intentId }.first
 
-        let transaction = Transaction(
-            totalAmount: mainTotal,
-            currencyCode: mainCode,
-            note: note.isEmpty ? nil : note,
-            paymentMethod: primaryMethod,
-            paymentMethodIcon: primary.methodIcon,
-            transactionRef: txnRefToUse,
-            stripePaymentIntentId: firstIntentId,
-            paymentStatus: firstIntentId != nil ? "succeeded" : "manual",
-            splitEntries: allEntries
-        )
+        // Snapshot cart & note before resetting state below.
+        let cartSnapshot = cart
+        let noteSnapshot = note
 
-        for (id, qty) in cart {
-            if qty > 0, let product = event.products.first(where: { $0.id == id }) {
-                let basePrice  = proratedUnitPrice(for: id, quantity: qty)
-                let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
-                let line = LineItem(productName: product.name, quantity: qty,
-                                   unitPrice: finalPrice, subgroup: product.subgroup)
-                line.product = product
-                transaction.lineItems.append(line)
-            }
-        }
-        transaction.event = event
-        event.transactions.append(transaction)
-
-        if event.isStockControlEnabled {
-            for lineItem in transaction.lineItems {
-                if let product = lineItem.product, product.stockQty != nil {
-                    product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
-                }
-            }
-        }
-
-        // Reset all split state and cart.
+        // Reset all split state and cart — BEFORE presenting the receipt prompt.
         splitCollectedEntries  = []
         pendingSplitEntries    = []
         pendingSplitStripeCallback = nil
@@ -1634,15 +1605,64 @@ struct PanelView: View {
         overriddenTotal = nil
         overriddenCategoryTotals.removeAll()
 
-        withAnimation { showingTransactionNotification = true }
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run { withAnimation { showingTransactionNotification = false } }
+        // Defer saving the transaction until after the manual receipt prompt so we can
+        // attach a receipt email before writing to the store.
+        // Using pendingSplitRegisterCallback mirrors how processSplitCheckout finalises
+        // all-cash or mixed splits — the "Need Receipt?" alert calls this closure.
+        pendingSplitRegisterCallback = { receiptEmail in
+            let transaction = Transaction(
+                totalAmount: mainTotal,
+                currencyCode: mainCode,
+                note: noteSnapshot.isEmpty ? nil : noteSnapshot,
+                paymentMethod: primaryMethod,
+                paymentMethodIcon: primary.methodIcon,
+                transactionRef: txnRefToUse,
+                stripePaymentIntentId: firstIntentId,
+                paymentStatus: firstIntentId != nil ? "succeeded" : "manual",
+                receiptEmail: receiptEmail,
+                splitEntries: allEntries
+            )
+
+            for (id, qty) in cartSnapshot {
+                if qty > 0, let product = self.event.products.first(where: { $0.id == id }) {
+                    let basePrice  = self.proratedUnitPrice(for: id, quantity: qty)
+                    let finalPrice = self.discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                    let line = LineItem(productName: product.name, quantity: qty,
+                                       unitPrice: finalPrice, subgroup: product.subgroup)
+                    line.product = product
+                    transaction.lineItems.append(line)
+                }
+            }
+            transaction.event = self.event
+            self.event.transactions.append(transaction)
+
+            if self.event.isStockControlEnabled {
+                for lineItem in transaction.lineItems {
+                    if let product = lineItem.product, product.stockQty != nil {
+                        product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
+                    }
+                }
+            }
+
+            if let email = receiptEmail, !email.isEmpty {
+                Task {
+                    let _ = await ReceiptService.sendCustomReceipt(
+                        transaction: transaction, event: self.event, email: email)
+                }
+            }
+
+            withAnimation { self.showingTransactionNotification = true }
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run { withAnimation { self.showingTransactionNotification = false } }
+            }
         }
 
-        // Offer receipt after a brief delay so any sheet dismissal animation completes.
+        // Show the MANUAL receipt prompt (SimpleEmailSheet — no Stripe intent needed).
+        // The old code used showingReceiptPrompt (Stripe path), which required
+        // pendingPaymentIntentId to be set — nil for cash, causing a white screen.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            self.showingReceiptPrompt = true
+            self.showingManualReceiptPrompt = true
         }
     }
 
@@ -2361,47 +2381,47 @@ struct PanelFooterView: View {
             .padding(.top, 10)
             .scrollDismissesKeyboard(.interactively)
             
-            // Action buttons - Clear 25% · Split 25% · Pay Now 50%
+            // Action buttons — Clear 25% · Split 25% · Pay Now 50%
+            // Using nested HStacks with maxWidth:.infinity avoids the GeometryReader
+            // gap-overcounting bug that left the row short of the right edge.
             let cartHasItems = cart.values.contains { $0 > 0 }
-            GeometryReader { geometry in
-                let totalWidth = geometry.size.width
-                let gap: CGFloat = 8
-                let clearWidth = totalWidth * 0.25 - gap
-                let splitWidth = totalWidth * 0.25 - gap
-                let payWidth   = totalWidth * 0.50 - gap
-                HStack(spacing: gap) {
+            HStack(spacing: 8) {
+                // Left half: Clear + Split, equal widths
+                HStack(spacing: 8) {
                     Button(action: onClear) {
                         Text("Clear")
                             .font(.system(size: 16, weight: .semibold))
-                            .frame(width: clearWidth, height: 46)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
                             .background(cartHasItems ? Color.red : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)
                     }
                     .disabled(!cartHasItems)
-                    
+
                     Button(action: onSplit) {
                         Text("Split")
                             .font(.system(size: 16, weight: .semibold))
-                            .frame(width: splitWidth, height: 46)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
                             .background(cartHasItems ? Color.blue : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)
                     }
                     .disabled(!cartHasItems)
-
-                    Button(action: onCheckout) {
-                        Text("Pay Now")
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: payWidth, height: 46)
-                            .background(cartHasItems ? Color.green : Color.gray)
-                            .foregroundStyle(.white)
-                            .cornerRadius(12)
-                    }
-                    .disabled(!cartHasItems)
                 }
+                // Right half: Pay Now, takes exactly the same space as the left HStack
+                Button(action: onCheckout) {
+                    Text("Pay Now")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(cartHasItems ? Color.green : Color.gray)
+                        .foregroundStyle(.white)
+                        .cornerRadius(12)
+                }
+                .disabled(!cartHasItems)
             }
-            .frame(height: 46)
             .padding(.top, 16) // Increased from 6 to 16
         }
         .padding(.horizontal, 16)
@@ -2587,6 +2607,55 @@ struct ProductListView: View {
 
 
 // MARK: - Override Input Sheet
+// MARK: - Auto-select + right-aligned text field
+/// UIViewRepresentable wrapper: becomes first responder immediately on appear
+/// and selects all existing text so the user can just type the new value.
+private struct SelectAllTextField: UIViewRepresentable {
+    @Binding var text: String
+    var placeholder: String = ""
+    var font: UIFont = .preferredFont(forTextStyle: .title3)
+
+    func makeUIView(context: Context) -> UITextField {
+        let tf = UITextField()
+        tf.delegate = context.coordinator
+        tf.keyboardType = .decimalPad
+        tf.textAlignment = .right
+        tf.font = font
+        tf.borderStyle = .roundedRect
+        tf.placeholder = placeholder
+        tf.text = text
+        // Become first responder and select all on the next run-loop tick
+        // so the sheet animation has finished settling.
+        DispatchQueue.main.async {
+            tf.becomeFirstResponder()
+            tf.selectAll(nil)
+        }
+        return tf
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        // Only update when the binding changes externally (avoid clobbering
+        // mid-typing edits which would move the cursor).
+        if uiView.text != text { uiView.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: SelectAllTextField
+        init(_ parent: SelectAllTextField) { self.parent = parent }
+        func textField(_ tf: UITextField,
+                       shouldChangeCharactersIn range: NSRange,
+                       replacementString string: String) -> Bool {
+            let current = tf.text ?? ""
+            if let r = Range(range, in: current) {
+                parent.text = current.replacingCharacters(in: r, with: string)
+            }
+            return true
+        }
+    }
+}
+
 struct OverrideInputSheet: View {
     let target: OverrideTarget?
     let currentTotal: Decimal
@@ -2595,8 +2664,6 @@ struct OverrideInputSheet: View {
     let onApply: () -> Void
     let onClear: () -> Void
     let onDismiss: () -> Void
-    
-    @FocusState private var isInputFocused: Bool
     
     var title: String {
         guard let target = target else { return "Override Total" }
@@ -2620,16 +2687,13 @@ struct OverrideInputSheet: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             
-            // Input field
+            // Input field — right-aligned, pre-selects text on open
             HStack {
                 Text(currencySymbol)
                     .font(.title3)
                     .foregroundStyle(.secondary)
-                TextField("New amount", text: $inputText)
-                    .font(.title3)
-                    .keyboardType(.decimalPad)
-                    .focused($isInputFocused)
-                    .textFieldStyle(.roundedBorder)
+                SelectAllTextField(text: $inputText, placeholder: "New amount")
+                    .frame(height: 38)
             }
             .padding(.horizontal)
             
@@ -2659,9 +2723,7 @@ struct OverrideInputSheet: View {
             
             Spacer()
         }
-        .onAppear {
-            isInputFocused = true
-        }
+        // Focus + selection is handled inside SelectAllTextField.makeUIView.
     }
 }
 

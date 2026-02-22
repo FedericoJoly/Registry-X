@@ -51,7 +51,9 @@ struct SplitPaySheet: View {
 
     private func amountInMain(_ entry: SplitMethodEntry) -> Decimal {
         guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
-              val > 0 else { return 0 }
+              val > 0,
+              entry.selectedCurrencyId != nil   // no currency selected → not counted yet
+        else { return 0 }
         let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
         let r = rate(for: code)
         return r > 0 ? val / r : val
@@ -64,6 +66,19 @@ struct SplitPaySheet: View {
 
     private var enteredTotal: Decimal {
         entries.reduce(Decimal(0)) { $0 + amountInMain($1) }
+    }
+
+    /// Like enteredTotal but uses main currency as fallback — drives the live "remaining" display
+    /// so the counter ticks as the user types, even before selecting a currency.
+    private func amountInMainForDisplay(_ entry: SplitMethodEntry) -> Decimal {
+        guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
+              val > 0 else { return 0 }
+        let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
+        let r = rate(for: code)
+        return r > 0 ? val / r : val
+    }
+    private var displayEnteredTotal: Decimal {
+        entries.reduce(Decimal(0)) { $0 + amountInMainForDisplay($1) }
     }
 
     private var remaining: Decimal { remainingTotal - enteredTotal }
@@ -160,10 +175,13 @@ struct SplitPaySheet: View {
                             .font(.system(size: 28, weight: .bold))
                             .foregroundStyle(isBalanced ? .green : .primary)
                     }
-                    if !isBalanced && enteredTotal > 0 {
-                        Text("\(symbol(for: mainCurrencyCode))\(abs(remaining).formatted(.number.precision(.fractionLength(2)))) \(remaining > 0 ? "remaining" : "over")")
+                    // Show remaining as soon as the user starts typing — use displayEnteredTotal
+                    // so the counter ticks immediately without waiting for a currency tap.
+                    let displayRemaining: Decimal = remainingTotal - displayEnteredTotal
+                    if displayEnteredTotal > 0 {
+                        Text("\(symbol(for: mainCurrencyCode))\(abs(displayRemaining).formatted(.number.precision(.fractionLength(2)))) \(displayRemaining > 0 ? "remaining" : "over")")
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(abs(displayRemaining) < 0.01 ? .green : .red)
                     }
                 }
                 .padding(.vertical, 16)
@@ -351,13 +369,14 @@ struct SplitMethodRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.method.name)
                     .font(.body)
+                    .lineLimit(1)
                 if entry.isUserAdded {
                     Text("Swipe to remove")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: 80, alignment: .leading)
+            .layoutPriority(-1)  // shrink before the fixed-size amount + currency widgets
 
             Spacer()
 
@@ -365,7 +384,7 @@ struct SplitMethodRow: View {
             TextField("0.00", text: $entry.amountText)
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
-                .frame(width: 80)
+                .frame(width: 68)
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)
                 .background(Color(UIColor.systemGray6))
@@ -377,7 +396,7 @@ struct SplitMethodRow: View {
                 }
 
             // Currency buttons
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 ForEach(availableCurrencies.filter { $0.isEnabled }, id: \.id) { currency in
                     let enabled = isCurrencyEnabled(currency) && hasValue
                     let selected = entry.selectedCurrencyId == currency.id
@@ -397,19 +416,16 @@ struct SplitMethodRow: View {
                         }
                     }) {
                         Text(currency.symbol)
-                            .font(.system(size: 14, weight: .bold))
-                            .frame(width: 30, height: 30)
+                            .font(.system(size: 13, weight: .bold))
+                            .frame(width: 26, height: 26)
                             .background(selected ? Color.blue : (enabled ? Color(UIColor.systemGray5) : Color(UIColor.systemGray5).opacity(0.3)))
                             .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.4)))
                             .cornerRadius(6)
                     }
-                    // .plain gives each button its own touch target inside the List row.
-                    // Without this, SwiftUI merges all buttons into the row's tap area.
                     .buttonStyle(.plain)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
     }
 }
