@@ -512,35 +512,26 @@ struct TotalsView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             // ── Tab header (3-visible, swipeable) ────────────────────────
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    GeometryReader { geo in
-                        HStack(spacing: 0) {
-                            ForEach(TotalsTab.allCases, id: \.self) { tab in
-                                Button(action: { withAnimation { selectedTab = tab } }) {
-                                    Text(tab.title)
-                                        .font(.headline)
-                                        .foregroundStyle(selectedTab == tab ? .blue : .secondary)
-                                        .padding(.bottom, 6)
-                                        .overlay(alignment: .bottom) {
-                                            if selectedTab == tab {
-                                                Rectangle().fill(Color.blue).frame(height: 2)
-                                            }
-                                        }
+            HStack(spacing: 0) {
+                ForEach(TotalsTab.allCases, id: \.self) { tab in
+                    Button(action: { withAnimation { selectedTab = tab } }) {
+                        Text(tab.title)
+                            .font(.headline)
+                            .foregroundStyle(selectedTab == tab ? .blue : .secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, 6)
+                            .overlay(alignment: .bottom) {
+                                if selectedTab == tab {
+                                    Rectangle().fill(Color.blue).frame(height: 2)
                                 }
-                                .frame(width: geo.size.width / 3)
-                                .id(tab)
                             }
-                        }
                     }
-                    .frame(height: 32)
-                }
-                .onChange(of: selectedTab) { _, newTab in
-                    withAnimation { proxy.scrollTo(newTab, anchor: .center) }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .padding(.horizontal)
             .padding(.top, 8)
+
 
             // ── Swipeable content (outside ScrollView so TabView gets real height) ──
             TabView(selection: Binding(
