@@ -853,284 +853,175 @@ struct TransactionCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-
-            // ── HEADER: Time · TX ID · Total / Refund badge ─────────────────
-            HStack(alignment: .center) {
-                Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
-                    .font(.headline)
-                    .foregroundStyle(transaction.isRefund ? .red : .primary)
-
-                if transaction.isRefund {
-                    refundStatusBadge
-                } else if transaction.isRefunded {
-                    refundStatusBadge
-                }
-
-                Spacer()
-
-                if let txnRef = transaction.transactionRef {
-                    Text(txnRef)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else {
-                    Text("\(transaction.lineItems.count) item\(transaction.lineItems.count == 1 ? "" : "s")")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Text(currencySymbol(for: transaction.currencyCode) + transaction.totalAmount.formatted(.number.precision(.fractionLength(2))))
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(transaction.isRefund ? .red : .primary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
-
+            cardHeader
             Divider().padding(.horizontal, 14)
-
-            // ── PAYMENT METHOD ROW(S) ─────────────────────────────────────────
-            if transaction.isNWaySplit {
-                // Wrap if many entries
-                let entries = transaction.splitEntries
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 14) {
-                        ForEach(Array(entries.enumerated()), id: \.offset) { idx, entry in
-                            HStack(spacing: 5) {
-                                Image(systemName: entry.methodIcon)
-                                    .font(.subheadline)
-                                    .foregroundStyle(splitMethodIconColor(icon: entry.methodIcon))
-                                Text(currencySymbol(for: entry.currencyCode) + splitDisplayAmount(entry.amountInMain, chargeCode: entry.currencyCode).formatted(.number.precision(.fractionLength(2))))
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.primary)
-                            }
-                            if idx < entries.count - 1 {
-                                Text("+")
-                                    .font(.caption)
-                                    .foregroundStyle(.quaternary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                }
-            } else {
-                HStack(spacing: 6) {
-                    Image(systemName: paymentIcon)
-                        .font(.subheadline)
-                        .foregroundStyle(paymentIconColor)
-                    Text(paymentMethodOption?.name ?? transaction.paymentMethod.rawValue.capitalized)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    // Category badge
-                    if event.areCategoriesEnabled,
-                       let firstCategory = transaction.lineItems.first?.product?.category {
-                        let categoryColor = Color(hex: firstCategory.hexColor).normalizeForRegistry()
-                        Text(firstCategory.name)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(categoryColor)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(categoryColor.opacity(0.15))
-                            .cornerRadius(4)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-            }
-
+            paymentMethodSection
             Divider().padding(.horizontal, 14)
-
-            // ── LINE ITEMS ────────────────────────────────────────────────────
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(transaction.lineItems) { item in
-                    HStack {
-                        let isDeleted = !event.products.contains(where: { $0.name == item.productName && !$0.isDeleted })
-                        let product = event.products.first(where: { $0.name == item.productName && !$0.isDeleted })
-                        let categoryColor = product?.category.flatMap { Color(hex: $0.hexColor) } ?? .gray
-
-                        Circle()
-                            .fill(categoryColor)
-                            .frame(width: 8, height: 8)
-
-                        Text(item.productName)
-                            .font(.subheadline)
-                            .foregroundStyle(isDeleted ? .red : .primary)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        Text("×\(item.quantity)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .padding(.trailing, 8)
-
-                        let unitPrice = item.quantity > 0 ? item.subtotal / Decimal(item.quantity) : item.subtotal
-                        Text(currencySymbol(for: transaction.currencyCode) + unitPrice.formatted(.number.precision(.fractionLength(2))))
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .frame(minWidth: 60, alignment: .trailing)
-                    }
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-
-            // ── NOTE ──────────────────────────────────────────────────────────
-            // Show inline editor when isEditingNote=true (even if note is currently empty),
-            // or show the saved note text when not editing.
-            let hasNote = !(transaction.note ?? "").isEmpty
-            if isEditingNote || hasNote {
-                Divider().padding(.horizontal, 14)
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "pencil")
-                        .foregroundStyle(isEditingNote ? Color.orange : Color.secondary)
-                        .font(.footnote)
-                        .padding(.top, 2)
-                    if isEditingNote {
-                        TextField("Add a note…", text: $editedNoteText, axis: .vertical)
-                            .font(.subheadline)
-                            .textFieldStyle(.plain)
-                            .lineLimit(1...5)
-                            .submitLabel(.done)
-                            .onSubmit { saveNote() }
-                            .toolbar {
-                                ToolbarItemGroup(placement: .keyboard) {
-                                    Spacer()
-                                    Button("Save") { saveNote() }
-                                        .bold()
-                                        .foregroundStyle(Color.orange)
-                                }
-                            }
-                        Button(action: saveNote) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Color.orange)
-                        }
-                        .buttonStyle(.borderless)
-                    } else {
-                        Text(transaction.note ?? "")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .onTapGesture { copyToClipboard(transaction.note ?? "") }
-                            .onLongPressGesture { startEditingNote() }
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-            }
-
-            // ── RECEIPT EMAIL ─────────────────────────────────────────────────
-            if let email = transaction.receiptEmail, !email.isEmpty {
-                Divider().padding(.horizontal, 14)
-                HStack(spacing: 8) {
-                    Image(systemName: "receipt")
-                        .foregroundStyle(.blue)
-                        .font(.footnote)
-                    Text(email)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .onTapGesture { copyToClipboard(email) }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-            }
-
+            lineItemsSection
+            noteSection
+            receiptEmailSection
             Divider().padding(.horizontal, 14)
-
-            // ── FOOTER: Savings · Actions ─────────────────────────────────────
-            HStack(alignment: .center, spacing: 16) {
-                if totalSavings > 0 {
-                    Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2))))
-                        .font(.subheadline)
-                        .foregroundStyle(.green)
-                }
-
-                Spacer()
-
-                // Edit note
-                Button(action: startEditingNote) {
-                    Image(systemName: "pencil")
-                        .foregroundStyle(Color.orange)
-                }
-                .buttonStyle(.borderless)
-                .disabled(event.isLocked)
-
-                // Send receipt
-                Button(action: { showingReceiptSheet = true }) {
-                    Image(systemName: "envelope")
-                        .foregroundStyle(Color.blue)
-                }
-                .buttonStyle(.borderless)
-                .disabled(isSendingReceipt)
-                .opacity(isSendingReceipt ? 0.4 : 1.0)
-
-                // Refund
-                Button(action: {
-                    let isStripeMethod = transaction.paymentMethod == .card || transaction.stripePaymentIntentId != nil || transaction.stripeSessionId != nil
-                    if isStripeMethod {
-                        showingRefundMethodSheet = true
-                    } else {
-                        showingRefundConfirmation = true
-                    }
-                }) {
-                    Image(systemName: "arrow.uturn.backward.circle")
-                        .foregroundStyle(transaction.isRefunded || transaction.isRefund ? .secondary : .orange)
-                }
-                .buttonStyle(.borderless)
-                .disabled(transaction.isRefunded || transaction.isRefund || event.isLocked || isProcessingRefund)
-                .opacity((transaction.isRefunded || transaction.isRefund || event.isLocked) ? 0.4 : 1.0)
-
-                // Delete
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.borderless)
-                .disabled(event.isLocked)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            cardFooter
         }
-        .background(
-            transaction.isRefund
-                ? Color.red.opacity(0.07)
-                : Color(UIColor.secondarySystemGroupedBackground)
-        )
+        .background(transaction.isRefund ? Color.red.opacity(0.07) : Color(UIColor.secondarySystemGroupedBackground))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(transaction.isRefund ? Color.red.opacity(0.3) : Color.clear, lineWidth: 1)
-        )
-        // ── Receipt send sheet ────────────────────────────────────────────────
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(transaction.isRefund ? Color.red.opacity(0.3) : Color.clear, lineWidth: 1))
         .sheet(isPresented: $showingReceiptSheet, content: receiptSheetContent)
-        // ── Refund method sheet (card/QR) ────────────────────────────────────
         .sheet(isPresented: $showingRefundMethodSheet) {
-            RefundMethodSheet(transaction: transaction) { method in
-                Task { await issueRefund(method: method) }
-            }
-            .presentationDetents([.height(320)])
+            RefundMethodSheet(transaction: transaction) { method in Task { await issueRefund(method: method) } }
+                .presentationDetents([.height(320)])
         }
-        // ── Cash/Bizum refund confirmation ───────────────────────────────────
-        .confirmationDialog(
-            "Refund this transaction?",
-            isPresented: $showingRefundConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Refund in Cash", role: .destructive) {
-                Task { await issueRefund(method: .cash) }
-            }
+        .confirmationDialog("Refund this transaction?", isPresented: $showingRefundConfirmation, titleVisibility: .visible) {
+            Button("Refund in Cash", role: .destructive) { Task { await issueRefund(method: .cash) } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("The customer will receive \(currencySymbol(for: transaction.currencyCode))\(transaction.totalAmount.formatted(.number.precision(.fractionLength(2)))) back in cash.")
         }
         .overlay(toastOverlay)
+    }
+
+    // MARK: - Card Sections
+
+    @ViewBuilder private var cardHeader: some View {
+        HStack(alignment: .center) {
+            Text(transaction.timestamp.formatted(.dateTime.hour().minute()))
+                .font(.headline)
+                .foregroundStyle(transaction.isRefund ? Color.red : Color.primary)
+            if transaction.isRefund || transaction.isRefunded { refundStatusBadge }
+            Spacer()
+            if let txnRef = transaction.transactionRef {
+                Text(txnRef).font(.subheadline.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+            } else {
+                Text("\(transaction.lineItems.count) item\(transaction.lineItems.count == 1 ? "" : "s")").font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(currencySymbol(for: transaction.currencyCode) + transaction.totalAmount.formatted(.number.precision(.fractionLength(2))))
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(transaction.isRefund ? Color.red : Color.primary)
+        }
+        .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
+    }
+
+    @ViewBuilder private var paymentMethodSection: some View {
+        if transaction.isNWaySplit {
+            let entries = transaction.splitEntries
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { idx, entry in
+                        HStack(spacing: 5) {
+                            Image(systemName: entry.methodIcon).font(.subheadline).foregroundStyle(splitMethodIconColor(icon: entry.methodIcon))
+                            Text(currencySymbol(for: entry.currencyCode) + splitDisplayAmount(entry.amountInMain, chargeCode: entry.currencyCode).formatted(.number.precision(.fractionLength(2)))).font(.subheadline.weight(.medium))
+                        }
+                        if idx < entries.count - 1 { Text("+").font(.caption).foregroundStyle(.quaternary) }
+                    }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 9)
+            }
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: paymentIcon).font(.subheadline).foregroundStyle(paymentIconColor)
+                Text(paymentMethodOption?.name ?? transaction.paymentMethod.rawValue.capitalized).font(.subheadline).foregroundStyle(.secondary)
+                if event.areCategoriesEnabled, let firstCategory = transaction.lineItems.first?.product?.category {
+                    let categoryColor = Color(hex: firstCategory.hexColor).normalizeForRegistry()
+                    Text(firstCategory.name).font(.caption.weight(.semibold)).foregroundStyle(categoryColor)
+                        .padding(.horizontal, 6).padding(.vertical, 2).background(categoryColor.opacity(0.15)).cornerRadius(4)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+        }
+    }
+
+    @ViewBuilder private var lineItemsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(transaction.lineItems) { item in
+                lineItemRow(item)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    @ViewBuilder private func lineItemRow(_ item: LineItem) -> some View {
+        let isDeleted = !event.products.contains(where: { $0.name == item.productName && !$0.isDeleted })
+        let product = event.products.first(where: { $0.name == item.productName && !$0.isDeleted })
+        let categoryColor = product?.category.flatMap { Color(hex: $0.hexColor) } ?? .gray
+        HStack {
+            Circle().fill(categoryColor).frame(width: 8, height: 8)
+            Text(item.productName).font(.subheadline).foregroundStyle(isDeleted ? Color.red : Color.primary).lineLimit(1)
+            Spacer()
+            Text("×\(item.quantity)").font(.subheadline).foregroundStyle(.secondary).padding(.trailing, 8)
+            let unitPrice = item.quantity > 0 ? item.subtotal / Decimal(item.quantity) : item.subtotal
+            Text(currencySymbol(for: transaction.currencyCode) + unitPrice.formatted(.number.precision(.fractionLength(2))))
+                .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8).frame(minWidth: 60, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder private var noteSection: some View {
+        let hasNote = !(transaction.note ?? "").isEmpty
+        if isEditingNote || hasNote {
+            Divider().padding(.horizontal, 14)
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "pencil").foregroundStyle(isEditingNote ? Color.orange : Color.secondary).font(.footnote).padding(.top, 2)
+                if isEditingNote {
+                    TextField("Add a note…", text: $editedNoteText, axis: .vertical)
+                        .font(.subheadline).textFieldStyle(.plain).lineLimit(1...5).submitLabel(.done).onSubmit { saveNote() }
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Save") { saveNote() }.bold().foregroundStyle(Color.orange)
+                            }
+                        }
+                    Button(action: saveNote) { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.orange) }.buttonStyle(.borderless)
+                } else {
+                    Text(transaction.note ?? "").font(.subheadline).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onTapGesture { copyToClipboard(transaction.note ?? "") }
+                        .onLongPressGesture { startEditingNote() }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder private var receiptEmailSection: some View {
+        if let email = transaction.receiptEmail, !email.isEmpty {
+            Divider().padding(.horizontal, 14)
+            HStack(spacing: 8) {
+                Image(systemName: "receipt").foregroundStyle(.blue).font(.footnote)
+                Text(email).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).onTapGesture { copyToClipboard(email) }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder private var cardFooter: some View {
+        HStack(alignment: .center, spacing: 16) {
+            if totalSavings > 0 {
+                Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2)))).font(.subheadline).foregroundStyle(.green)
+            }
+            Spacer()
+            Button(action: startEditingNote) { Image(systemName: "pencil").foregroundStyle(Color.orange) }
+                .buttonStyle(.borderless).disabled(event.isLocked)
+            Button(action: { showingReceiptSheet = true }) { Image(systemName: "envelope").foregroundStyle(Color.blue) }
+                .buttonStyle(.borderless).disabled(isSendingReceipt).opacity(isSendingReceipt ? 0.4 : 1.0)
+            Button(action: tapRefund) {
+                Image(systemName: "arrow.uturn.backward.circle")
+                    .foregroundStyle((transaction.isRefunded || transaction.isRefund) ? Color.secondary : Color.orange)
+            }
+            .buttonStyle(.borderless)
+            .disabled(transaction.isRefunded || transaction.isRefund || event.isLocked || isProcessingRefund)
+            .opacity((transaction.isRefunded || transaction.isRefund || event.isLocked) ? 0.4 : 1.0)
+            Button(action: onDelete) { Image(systemName: "trash").foregroundStyle(.red) }
+                .buttonStyle(.borderless).disabled(event.isLocked)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    private func tapRefund() {
+        let isStripeMethod = transaction.paymentMethod == .card
+            || transaction.stripePaymentIntentId != nil
+            || transaction.stripeSessionId != nil
+        if isStripeMethod { showingRefundMethodSheet = true } else { showingRefundConfirmation = true }
     }
     
     // MARK: - Extracted helpers (break up body for type-checker)
