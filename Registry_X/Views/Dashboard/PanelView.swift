@@ -1145,10 +1145,14 @@ struct PanelView: View {
         } message: {
             Text("This card payment failed 3 times. How would you like to proceed?")
         }
-        // Alert B: at least 1 payment captured → must resolve, offer Void instead of Cancel
+        // Alert B: at least 1 payment captured → must resolve, offer Void instead of Cancel.
+        // "Return to Split Sheet" gets .cancel role to satisfy iOS HIG and prevent the
+        // framework from auto-appending its own "Cancel" button.
         .alert("Payment Failed", isPresented: $showSplitFailureWithCaptures) {
             ForEach(splitFailureAlertActions) { action in
-                Button(action.title) { action.action() }
+                Button(action.title, role: action.isDestructive ? .destructive : (action.isCancel ? .cancel : nil)) {
+                    action.action()
+                }
             }
             Button("Void & Refund All", role: .destructive) { voidAllAndReset() }
         } message: {
@@ -1156,23 +1160,24 @@ struct PanelView: View {
         }
         // ── Mid-split interrupt alert (Cancel pressed during active split) ────────────
         .alert("Payment Interrupted", isPresented: $showingSplitReturnToSheetAlert) {
-            // This alert is ONLY triggered when splitCollectedEntries is non-empty (~line 1847).
-            // Don't use @State inside alert ViewBuilders — SwiftUI re-evaluates lazily
-            // and may read stale values. Hardcode the correct buttons for this path.
-            Button("Return to Split Sheet") {
+            // "Return to Split Sheet" uses .cancel role — this prevents iOS from
+            // auto-adding its own "Cancel" button (iOS requires a .cancel role button
+            // whenever a .destructive button is present, per HIG enforcement).
+            // Return to Sheet IS the safe exit: no payment is abandoned.
+            Button("Accept Cash for Remaining") {
+                acceptRemainingAsCash()
+            }
+            Button("Void All & Refund", role: .destructive) {
+                voidAllAndReset()
+            }
+            Button("Return to Split Sheet", role: .cancel) {
                 pendingSplitEntries = []
                 pendingSplitStripeCallback = nil
                 pendingSplitCardCancelCallback = nil
                 showingSplitPaySheet = true
             }
-            Button("Void All & Refund", role: .destructive) {
-                voidAllAndReset()
-            }
-            Button("Accept Cash for Remaining") {
-                acceptRemainingAsCash()
-            }
         } message: {
-            Text("Payment(s) already captured. Collect the remaining balance in cash, return to the split sheet to reconfigure, or void all and refund.")
+            Text("Payment(s) already captured. How would you like to settle the remaining balance?")
         }
         .sheet(isPresented: $showingManualReceiptEmailSheet) {
             SimpleEmailSheet(
@@ -1838,8 +1843,9 @@ struct PanelView: View {
                                     splitChargeCurrency = entry.currencyCode.isEmpty ? currentCurrencyCode : entry.currencyCode
                                     attemptCardEntry()
                                 },
-                                SplitFailureAction(title: "Return to Split Sheet", isDestructive: false) {
-                                    // Go back to sheet with captured entries locked + remaining editable
+                                // isCancel: true gives this .cancel role in the ForEach,
+                                // preventing iOS from auto-appending its own "Cancel" button.
+                                SplitFailureAction(title: "Return to Split Sheet", isDestructive: false, isCancel: true) {
                                     pendingSplitEntries = []
                                     pendingSplitStripeCallback = nil
                                     pendingSplitCardCancelCallback = nil
