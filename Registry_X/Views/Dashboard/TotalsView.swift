@@ -8,10 +8,18 @@ struct TotalsView: View {
     @Environment(AuthService.self) private var authService
     @State private var selectedTab: TotalsTab = .currencies
     
-    enum TotalsTab {
+    enum TotalsTab: Int, CaseIterable {
         case currencies
         case products
         case groups
+
+        var title: String {
+            switch self {
+            case .currencies: return "Currencies"
+            case .products:   return "Products"
+            case .groups:     return "Groups"
+            }
+        }
     }
     
     // MARK: - Data Structures
@@ -500,68 +508,53 @@ struct TotalsView: View {
                     .padding(.horizontal)
                     .padding(.top)
                     
-                    // Tabs
-                    HStack(spacing: 0) {
-                        Button(action: { selectedTab = .currencies }) {
-                            Text("Currencies")
-                                .font(.headline)
-                                .foregroundStyle(selectedTab == .currencies ? .blue : .secondary)
-                                .padding(.bottom, 6)
-                                .overlay(alignment: .bottom) {
-                                    if selectedTab == .currencies {
-                                        Rectangle()
-                                            .fill(Color.blue)
-                                            .frame(height: 2)
+                    // ── Tab header (3-visible, swipeable) ────────────────────
+                    let tabWidth = UIScreen.main.bounds.width / 3
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 0) {
+                                ForEach(TotalsTab.allCases, id: \.self) { tab in
+                                    Button(action: { withAnimation { selectedTab = tab } }) {
+                                        Text(tab.title)
+                                            .font(.headline)
+                                            .foregroundStyle(selectedTab == tab ? .blue : .secondary)
+                                            .padding(.bottom, 6)
+                                            .overlay(alignment: .bottom) {
+                                                if selectedTab == tab {
+                                                    Rectangle().fill(Color.blue).frame(height: 2)
+                                                }
+                                            }
                                     }
+                                    .frame(width: tabWidth)
+                                    .id(tab)
                                 }
+                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        
-                        Button(action: { selectedTab = .products }) {
-                            Text("Products")
-                                .font(.headline)
-                                .foregroundStyle(selectedTab == .products ? .blue : .secondary)
-                                .padding(.bottom, 6)
-                                .overlay(alignment: .bottom) {
-                                    if selectedTab == .products {
-                                        Rectangle()
-                                            .fill(Color.blue)
-                                            .frame(height: 2)
-                                    }
-                                }
+                        .onChange(of: selectedTab) { _, newTab in
+                            withAnimation { proxy.scrollTo(newTab, anchor: .center) }
                         }
-                        .frame(maxWidth: .infinity)
-                        
-                        Button(action: { selectedTab = .groups }) {
-                            Text("Groups")
-                                .font(.headline)
-                                .foregroundStyle(selectedTab == .groups ? .blue : .secondary)
-                                .padding(.bottom, 6)
-                                .overlay(alignment: .bottom) {
-                                    if selectedTab == .groups {
-                                        Rectangle()
-                                            .fill(Color.blue)
-                                            .frame(height: 2)
-                                    }
-                                }
-                        }
-                        .frame(maxWidth: .infinity)
                     }
                     .padding(.horizontal)
                     .padding(.top)
-                    
-                    // Content based on selected tab
-                    if selectedTab == .currencies {
+
+                    // ── Swipeable content ─────────────────────────────────────
+                    TabView(selection: Binding(
+                        get: { selectedTab.rawValue },
+                        set: { selectedTab = TotalsTab(rawValue: $0) ?? .currencies }
+                    )) {
                         CurrenciesView(groupedByCurrency: groupedByCurrency)
-                    } else if selectedTab == .products {
+                            .tag(TotalsTab.currencies.rawValue)
                         TotalsProductsView(groupedByProduct: groupedByProduct, event: event)
-                    } else {
+                            .tag(TotalsTab.products.rawValue)
                         TotalsGroupsView(
                             groupedByCategory: groupedByCategory,
                             groupedBySubgroup: groupedBySubgroup,
                             event: event
                         )
+                        .tag(TotalsTab.groups.rawValue)
                     }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .animation(.easeInOut, value: selectedTab)
                 }
             }
         }
