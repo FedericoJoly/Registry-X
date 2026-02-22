@@ -107,17 +107,18 @@ class RefundService {
         // 6. Save
         try modelContext.save()
 
-        // 7. Send refund receipt email (cash/Bizum only — Stripe handles card/QR automatically)
-        if refundMethod == .cash,
-           let email = originalTransaction.receiptEmail,
-           !email.isEmpty,
-           let backendURL = event.stripeBackendURL {
+        // 7. Send refund receipt email to any stored address
+        //    ReceiptService uses its own default mailer URL if none is provided
+        let receiptEmail = originalTransaction.receiptEmail ?? ""
+        if !receiptEmail.isEmpty {
+            print("[RefundService] Sending refund receipt to \(receiptEmail)")
             await ReceiptService.sendRefundReceipt(
                 originalTransaction: originalTransaction,
                 event: event,
-                email: email,
-                mailerBackendURL: backendURL
+                email: receiptEmail
             )
+        } else {
+            print("[RefundService] No email on original transaction — skipping refund receipt")
         }
     }
 }
