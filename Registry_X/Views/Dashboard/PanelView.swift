@@ -118,6 +118,9 @@ struct PanelView: View {
     // Split failure alert (shown after 3 consecutive TTP/QR failures)
     @State private var showingSplitCardFailureAlert = false
     @State private var splitFailureAlertActions: [SplitFailureAction] = []
+    /// Snapshot of !splitCollectedEntries.isEmpty taken just before the failure alert is shown.
+    /// Reading @State inside .alert ViewBuilders is unreliable — use this stable Bool instead.
+    @State private var splitFailureHasCaptures = false
     // Interrupt alert (shown when Cancel is pressed mid-split with already-captured entries)
     @State private var showingSplitReturnToSheetAlert = false
     // Holds the split callback result until the sheet is fully dismissed (avoids race condition
@@ -1136,6 +1139,14 @@ struct PanelView: View {
                     action.action()
                 }
             }
+            // 4th button: Void (when captures) or Cancel (when nothing captured).
+            // splitFailureHasCaptures is set synchronously before showingSplitCardFailureAlert = true,
+            // so it is stable for the lifetime of this alert — no @State re-evaluation risk.
+            if splitFailureHasCaptures {
+                Button("Void & Refund All", role: .destructive) { voidAllAndReset() }
+            } else {
+                Button("Cancel", role: .cancel) { }
+            }
         } message: {
             Text("This card payment failed 3 times. How would you like to proceed?")
         }
@@ -1848,12 +1859,10 @@ struct PanelView: View {
                                     pendingSplitCardCancelCallback = nil
                                     processEntry(at: idx + 1)
                                 },
-                                // Void only makes sense when money was captured. When nothing
-                                // is captured, offer Cancel instead (safe to walk away).
-                                splitCollectedEntries.isEmpty
-                                    ? SplitFailureAction(title: "Cancel", isDestructive: false, isCancel: true) { }
-                                    : SplitFailureAction(title: "Void & Refund All", isDestructive: true) { voidAllAndReset() }
                             ]
+                            // Capture state BEFORE presenting — splitFailureHasCaptures is
+                            // stable for the alert lifetime; no @State re-evaluation risk.
+                            splitFailureHasCaptures = !splitCollectedEntries.isEmpty
                             showingSplitCardFailureAlert = true
                         } else {
                             // First/second cancel: show interrupt alert so user can choose to go back
