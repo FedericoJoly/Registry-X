@@ -861,21 +861,9 @@ struct TransactionCard: View {
                     .foregroundStyle(transaction.isRefund ? .red : .primary)
 
                 if transaction.isRefund {
-                    Text("REFUND")
-                        .font(.caption.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.red)
-                        .cornerRadius(4)
+                    refundStatusBadge
                 } else if transaction.isRefunded {
-                    Text("REFUNDED")
-                        .font(.caption.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.orange)
-                        .cornerRadius(4)
+                    refundStatusBadge
                 }
 
                 Spacer()
@@ -1147,21 +1135,36 @@ struct TransactionCard: View {
     
     // MARK: - Extracted helpers (break up body for type-checker)
 
+    @ViewBuilder private var refundStatusBadge: some View {
+        let (text, bg): (String, Color) = transaction.isRefund ? ("REFUND", .red) : ("REFUNDED", .orange)
+        Text(text)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(bg)
+            .cornerRadius(4)
+    }
+
     @ViewBuilder private var toastOverlay: some View {
         if showNoteCopied {
             toastCapsule(icon: "doc.on.doc.fill", iconColor: .green, label: "Copied")
         }
         if let result = receiptSendResult {
             let isOk = result == "sent" || result == "refunded"
-            let icon = isOk ? "checkmark.circle.fill" : "xmark.circle.fill"
-            let color: Color = isOk ? .green : .red
-            let label: String
-            switch result {
-            case "sent":      label = "Receipt sent"
-            case "refunded":  label = "Refund issued"
-            default:          label = refundError ?? "Failed"
-            }
-            toastCapsule(icon: icon, iconColor: color, label: label)
+            toastCapsule(
+                icon: isOk ? "checkmark.circle.fill" : "xmark.circle.fill",
+                iconColor: isOk ? .green : .red,
+                label: toastLabel(for: result)
+            )
+        }
+    }
+
+    private func toastLabel(for result: String) -> String {
+        switch result {
+        case "sent":     return "Receipt sent"
+        case "refunded": return "Refund issued"
+        default:         return refundError ?? "Failed"
         }
     }
 
