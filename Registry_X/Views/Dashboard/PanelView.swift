@@ -1215,6 +1215,7 @@ struct PanelView: View {
                 availableCurrencies: enabledCurrencies,
                 mainCurrencyCode: mainCode,
                 derivedTotal: rate > 0 ? derivedTotal / rate : derivedTotal,
+                displayCurrencyCode: currentCurrencyCode != mainCode ? currentCurrencyCode : nil,
                 lockedEntries: locked,
                 lockedIntentIds: lockedIds,
                 onCancel: {

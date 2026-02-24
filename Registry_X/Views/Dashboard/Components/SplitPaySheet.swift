@@ -14,7 +14,10 @@ struct SplitPaySheet: View {
     let availableMethods: [PaymentMethodOption]
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
-    let derivedTotal: Decimal          // Full cart total (for header display)
+    let derivedTotal: Decimal          // Full cart total in mainCurrencyCode (for internal balance math)
+    /// When set, the header and balance counter show amounts in this currency instead of mainCurrencyCode.
+    /// Useful when the panel is showing a converted charge currency (e.g. EUR while GBP is main).
+    var displayCurrencyCode: String? = nil
     /// Entries already captured mid-split — shown locked, reduce the remaining balance
     var lockedEntries: [SplitEntry] = []
     /// Intent/session IDs of captured payments — needed for Void All refunds
@@ -41,6 +44,13 @@ struct SplitPaySheet: View {
         if code == mainCurrencyCode { return 1 }
         return availableCurrencies.first(where: { $0.code == code })?.rate ?? 1
     }
+
+    /// Multiplier to convert a main-currency amount to displayCurrencyCode for display.
+    private var displayRate: Decimal {
+        guard let dc = displayCurrencyCode, dc != mainCurrencyCode else { return 1 }
+        return availableCurrencies.first(where: { $0.code == dc })?.rate ?? 1
+    }
+    private var effectiveDisplayCode: String { displayCurrencyCode ?? mainCurrencyCode }
 
     private func convert(_ amount: Decimal, from fromCode: String, to toCode: String) -> Decimal {
         guard fromCode != toCode else { return amount }
@@ -153,7 +163,7 @@ struct SplitPaySheet: View {
                                 Text("Total")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Text(symbol(for: mainCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                                Text(symbol(for: effectiveDisplayCode) + (derivedTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
                                     .font(.headline.bold())
                             }
                             Image(systemName: "arrow.right")
@@ -162,7 +172,7 @@ struct SplitPaySheet: View {
                                 Text("Remaining")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Text(symbol(for: mainCurrencyCode) + remainingTotal.formatted(.number.precision(.fractionLength(2))))
+                                Text(symbol(for: effectiveDisplayCode) + (remainingTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 24, weight: .bold))
                                     .foregroundStyle(isBalanced ? .green : .orange)
                             }
@@ -171,15 +181,14 @@ struct SplitPaySheet: View {
                         Text("Total")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Text(symbol(for: mainCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                        Text(symbol(for: effectiveDisplayCode) + (derivedTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
                             .font(.system(size: 28, weight: .bold))
                             .foregroundStyle(isBalanced ? .green : .primary)
                     }
-                    // Show remaining as soon as the user starts typing — use displayEnteredTotal
-                    // so the counter ticks immediately without waiting for a currency tap.
-                    let displayRemaining: Decimal = remainingTotal - displayEnteredTotal
+                    // Show remaining as soon as the user starts typing
+                    let displayRemaining: Decimal = (remainingTotal - displayEnteredTotal) * displayRate
                     if displayEnteredTotal > 0 {
-                        Text("\(symbol(for: mainCurrencyCode))\(abs(displayRemaining).formatted(.number.precision(.fractionLength(2)))) \(displayRemaining > 0 ? "remaining" : "over")")
+                        Text("\(symbol(for: effectiveDisplayCode))\(abs(displayRemaining).formatted(.number.precision(.fractionLength(2)))) \(displayRemaining > 0 ? "remaining" : "over")")
                             .font(.footnote)
                             .foregroundStyle(abs(displayRemaining) < 0.01 ? .green : .red)
                     }
