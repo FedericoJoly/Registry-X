@@ -326,19 +326,14 @@ struct SplitPaySheet: View {
             }
         }
         .onAppear {
-            // Pre-select the charge currency so row inputs are in EUR (or whatever is displayed),
-            // not in the event main (GBP). Falls back to main if the method doesn't allow it.
+            // Always pre-select the charge currency so typed numbers are in the displayed currency.
+            // If a method can't process that currency, the operator will tap a supported button
+            // and the amount will auto-convert at that point.
             let chargeCurrencyCode = displayCurrencyCode ?? mainCurrencyCode
             let chargeCurrencyId = availableCurrencies.first(where: { $0.code == chargeCurrencyCode })?.id
-            let mainCurrencyId   = availableCurrencies.first(where: { $0.code == mainCurrencyCode })?.id
             entries = availableMethods.map { method in
                 var entry = SplitMethodEntry(method: method)
-                if let id = chargeCurrencyId {
-                    let allowed = method.enabledCurrencies.isEmpty || method.enabledCurrencies.contains(id)
-                    entry.selectedCurrencyId = allowed ? id : mainCurrencyId
-                } else {
-                    entry.selectedCurrencyId = mainCurrencyId
-                }
+                entry.selectedCurrencyId = chargeCurrencyId
                 return entry
             }
         }
