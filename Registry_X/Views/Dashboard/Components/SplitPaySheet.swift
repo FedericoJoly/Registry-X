@@ -326,7 +326,21 @@ struct SplitPaySheet: View {
             }
         }
         .onAppear {
-            entries = availableMethods.map { SplitMethodEntry(method: $0) }
+            // Pre-select the charge currency so row inputs are in EUR (or whatever is displayed),
+            // not in the event main (GBP). Falls back to main if the method doesn't allow it.
+            let chargeCurrencyCode = displayCurrencyCode ?? mainCurrencyCode
+            let chargeCurrencyId = availableCurrencies.first(where: { $0.code == chargeCurrencyCode })?.id
+            let mainCurrencyId   = availableCurrencies.first(where: { $0.code == mainCurrencyCode })?.id
+            entries = availableMethods.map { method in
+                var entry = SplitMethodEntry(method: method)
+                if let id = chargeCurrencyId {
+                    let allowed = method.enabledCurrencies.isEmpty || method.enabledCurrencies.contains(id)
+                    entry.selectedCurrencyId = allowed ? id : mainCurrencyId
+                } else {
+                    entry.selectedCurrencyId = mainCurrencyId
+                }
+                return entry
+            }
         }
     }
 }
