@@ -1206,13 +1206,17 @@ struct PanelView: View {
         // Split Pay Sheet (step 1 — method & amount selection)
         .sheet(isPresented: $showingSplitPaySheet) {
             let enabledCurrencies = event.currencies.filter { $0.isEnabled }
+            let mainCode = event.currencies.first(where: { $0.isMain })?.code ?? event.currencyCode
+            // derivedTotal is in currentCurrencyCode; divide by rate to get the main-currency base
+            let baseTotal = rate > 0 ? derivedTotal / rate : derivedTotal
             let locked = splitCollectedEntries.map { $0.entry }
             let lockedIds = splitCollectedEntries.compactMap { $0.intentId }
             SplitPaySheet(
                 availableMethods: allEnabledPaymentMethods,
                 availableCurrencies: enabledCurrencies,
-                mainCurrencyCode: currentCurrencyCode,   // already in charge currency
-                derivedTotal: derivedTotal,               // already in currentCurrencyCode
+                mainCurrencyCode: mainCode,
+                derivedTotal: baseTotal,
+                displayCurrencyCode: currentCurrencyCode != mainCode ? currentCurrencyCode : nil,
                 lockedEntries: locked,
                 lockedIntentIds: lockedIds,
                 onCancel: {
