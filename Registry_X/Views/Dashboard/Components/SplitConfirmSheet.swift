@@ -7,6 +7,10 @@ struct SplitConfirmSheet: View {
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
     let totalAmount: Decimal
+    /// When set, the Total row in the header shows this currency/amount instead of mainCurrencyCode/totalAmount.
+    /// Matches the charge-currency display used in SplitPaySheet.
+    var displayCurrencyCode: String? = nil
+    var displayTotal: Decimal? = nil
     /// Number of leading entries already captured — shown greyed-out with a checkmark.
     var paidCount: Int = 0
 
@@ -52,13 +56,15 @@ struct SplitConfirmSheet: View {
                     .cornerRadius(14)
                     .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
 
-                    // Total row
+                    // Total row — shown in charge currency if available, else main currency
                     HStack {
                         Text("Total")
                             .font(.headline)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text(symbol(for: mainCurrencyCode) + totalAmount.formatted(.number.precision(.fractionLength(2))))
+                        let headerCode   = displayCurrencyCode ?? mainCurrencyCode
+                        let headerAmount = displayTotal ?? totalAmount
+                        Text(symbol(for: headerCode) + headerAmount.formatted(.number.precision(.fractionLength(2))))
                             .font(.headline)
                             .bold()
                     }

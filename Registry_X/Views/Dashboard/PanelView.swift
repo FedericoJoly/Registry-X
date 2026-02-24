@@ -1287,6 +1287,8 @@ struct PanelView: View {
                 availableCurrencies: enabledCurrencies,
                 mainCurrencyCode: mainCode,
                 totalAmount: total,
+                displayCurrencyCode: currentCurrencyCode != mainCode ? currentCurrencyCode : nil,
+                displayTotal: currentCurrencyCode != mainCode ? derivedTotal : nil,
                 paidCount: splitCollectedEntries.count,
                 onCancel: {
                     showingSplitConfirmSheet = false
