@@ -42,6 +42,9 @@ struct EventExport: Codable, Sendable {
     // Stock Control
     let isStockControlEnabled: Bool?
     
+    // Custom Discounts
+    let areCustomDiscountsEnabled: Bool?
+    
     // Data
     let currencies: [CurrencyExport]
     let categories: [CategoryExport]
@@ -301,6 +304,7 @@ extension Event {
             receiptSettingsData: receiptSettingsData,
             closingDate: closingDate,
             isStockControlEnabled: isStockControlEnabled,
+            areCustomDiscountsEnabled: areCustomDiscountsEnabled,
             currencies: currencyExports,
             categories: categoryExports,
             products: productExports,

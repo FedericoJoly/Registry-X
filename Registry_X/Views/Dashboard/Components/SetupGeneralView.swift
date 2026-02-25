@@ -92,6 +92,25 @@ struct SetupGeneralView: View {
                 }
                 .padding(.vertical, 2)
                 
+                // Custom Discounts Toggle
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Custom Discounts")
+                            .font(.body)
+                        Text("Allow on-the-fly discounts in the panel")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $draft.areCustomDiscountsEnabled)
+                        .labelsHidden()
+                        .tint(.green)
+                        .scaleEffect(0.8)
+                }
+                .padding(.vertical, 2)
+                
                 // Total Round-up Toggle
                 HStack {
                     Text("Total Round-up")

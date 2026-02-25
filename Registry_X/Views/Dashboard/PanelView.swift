@@ -62,6 +62,11 @@ struct PanelView: View {
     @State private var selectedTab = 0 // For category paging
     @State private var activeDiscountPromoIds: Set<UUID> = [] // Discount promos toggled ON in this session
     
+    // Custom on-the-fly discount
+    @State private var customDiscountValue: Decimal? = nil
+    @State private var customDiscountIsPercentage: Bool = false
+    @State private var showingCustomDiscountSheet: Bool = false
+    
     // Alerts
     @State private var showingTransactionNotification = false
     @State private var showingClearConfirmation = false
@@ -305,6 +310,14 @@ struct PanelView: View {
                 }
                 sum = max(0, sum - productDeduction)
             }
+        }
+        
+        // Apply custom on-the-fly discount (takes precedence over promo buttons)
+        if let cd = customDiscountValue {
+            let discount = customDiscountIsPercentage
+                ? sum * (cd / 100)
+                : cd
+            sum = max(0, sum - discount)
         }
         
         // Apply total round-up if enabled
@@ -825,6 +838,9 @@ struct PanelView: View {
                 showingOverrideSheet: $showingOverrideSheet,
                 overrideTarget: $overrideTarget,
                 overrideInputText: $overrideInputText,
+                customDiscountValue: $customDiscountValue,
+                customDiscountIsPercentage: $customDiscountIsPercentage,
+                showingCustomDiscountSheet: $showingCustomDiscountSheet,
                 calculateOriginalTotal: calculateOriginalTotal,
                 calculateOriginalCategoryTotal: calculateOriginalCategoryTotal,
                 categorySubtotal: { categoryId in categorySubtotal(for: categoryId) },
@@ -842,6 +858,25 @@ struct PanelView: View {
             )
             .disabled(event.isLocked)
             .opacity(event.isLocked ? 0.5 : 1.0)
+            .sheet(isPresented: $showingCustomDiscountSheet) {
+                CustomDiscountSheet(
+                    onApply: { value, isPct in
+                        customDiscountValue = value
+                        customDiscountIsPercentage = isPct
+                        activeDiscountPromoIds = []
+                        showingCustomDiscountSheet = false
+                    },
+                    onClear: {
+                        customDiscountValue = nil
+                        showingCustomDiscountSheet = false
+                    },
+                    onCancel: { showingCustomDiscountSheet = false },
+                    currentValue: customDiscountValue,
+                    currentIsPercentage: customDiscountIsPercentage
+                )
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
+            }
         }
         .background(Color(UIColor.systemGroupedBackground))
         .overlay(
@@ -874,6 +909,7 @@ struct PanelView: View {
                 note = ""
                 activeDiscountPromoIds.removeAll()
                 overriddenTotal = nil
+                customDiscountValue = nil
                 overriddenCategoryTotals.removeAll()
             }
             Button("Cancel", role: .cancel) { }
@@ -1607,6 +1643,7 @@ struct PanelView: View {
         note = ""
         activeDiscountPromoIds.removeAll()
         overriddenTotal = nil
+        customDiscountValue = nil
         overriddenCategoryTotals.removeAll()
 
         // Defer saving the transaction until after the manual receipt prompt so we can
@@ -2117,6 +2154,12 @@ struct PanelFooterView: View {
     @Binding var showingOverrideSheet: Bool
     @Binding var overrideTarget: OverrideTarget?
     @Binding var overrideInputText: String
+    
+    // Custom on-the-fly discount
+    @Binding var customDiscountValue: Decimal?
+    @Binding var customDiscountIsPercentage: Bool
+    @Binding var showingCustomDiscountSheet: Bool
+
     let calculateOriginalTotal: () -> Decimal
     let calculateOriginalCategoryTotal: (UUID) -> Decimal
     let categorySubtotal: (UUID) -> Decimal
@@ -2381,6 +2424,11 @@ struct PanelFooterView: View {
     // MARK: - Notes + Promo Row (extracted to help the type-checker)
     @ViewBuilder private var notesAndPromoRow: some View {
         let discountPromos = event.promos.filter { $0.isActive && !$0.isDeleted && $0.mode == .discount }
+        let hasCustomDiscount = event.areCustomDiscountsEnabled
+        let totalButtons = (hasCustomDiscount ? 1 : 0) + discountPromos.count
+        let showPromoArea = totalButtons > 0
+        let promoDisabled = customDiscountValue != nil  // promos disabled when custom discount is active
+
         HStack(spacing: 8) {
             // Notes field (left, flexible)
             HStack(spacing: 8) {
@@ -2401,16 +2449,41 @@ struct PanelFooterView: View {
                     .stroke(Color.gray.opacity(0.3), lineWidth: 1)
             )
 
-            // Promo buttons (right): ≤3 fill width evenly; >3 scroll with 3-button-wide slots
-            if !discountPromos.isEmpty {
+            // Right side: custom discount + promo buttons
+            if showPromoArea {
                 GeometryReader { geo in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            let visibleCount = CGFloat(min(discountPromos.count, 3))
+                            let visibleCount = CGFloat(min(totalButtons, 3))
                             let btnWidth = (geo.size.width - 8 * (visibleCount - 1)) / visibleCount
+
+                            // Custom discount button — always leftmost
+                            if hasCustomDiscount {
+                                let isActive = customDiscountValue != nil
+                                let label: String = {
+                                    guard let val = customDiscountValue else { return "✕ Off" }
+                                    if customDiscountIsPercentage {
+                                        return "-\(val.formatted())%"
+                                    }
+                                    return "-\(currencySymbol(for: currentCurrencyCode))\(val.formatted())"
+                                }()
+                                Button { showingCustomDiscountSheet = true } label: {
+                                    Text(label)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.6)
+                                        .frame(width: btnWidth, height: 46)
+                                        .background(isActive ? Color.purple : Color(UIColor.systemGray5))
+                                        .foregroundStyle(isActive ? .white : .primary)
+                                        .cornerRadius(12)
+                                }
+                            }
+
+                            // Promo buttons — disabled + dimmed when custom discount active
                             ForEach(discountPromos) { promo in
                                 let isOn = activeDiscountPromoIds.contains(promo.id)
                                 Button {
+                                    guard !promoDisabled else { return }
                                     if isOn { activeDiscountPromoIds.remove(promo.id) }
                                     else     { activeDiscountPromoIds.insert(promo.id) }
                                 } label: {
@@ -2422,7 +2495,9 @@ struct PanelFooterView: View {
                                         .background(isOn ? Color.green : Color(UIColor.systemGray5))
                                         .foregroundStyle(isOn ? .white : .primary)
                                         .cornerRadius(12)
+                                        .opacity(promoDisabled ? 0.35 : 1)
                                 }
+                                .disabled(promoDisabled)
                             }
                         }
                     }

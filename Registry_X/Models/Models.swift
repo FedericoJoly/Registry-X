@@ -54,6 +54,7 @@ final class Event {
     var isTotalRoundUp: Bool = true
     var areCategoriesEnabled: Bool = true
     var arePromosEnabled: Bool = true
+    var areCustomDiscountsEnabled: Bool = false
     var defaultProductBackgroundColor: String = "#FFFFFF" // White default
     var creatorName: String // Snapshot of creator's name
     var creatorId: UUID? // Link to User ID (Optional for backward compatibility/migration)
@@ -80,7 +81,7 @@ final class Event {
     // Receipt Configuration (per payment method)
     var receiptSettingsData: Data? // Stores [String: Bool] mapping (method name -> enabled)
     
-    init(id: UUID = UUID(), name: String, date: Date, isLocked: Bool = false, isFinalised: Bool = false, pinCode: String? = nil, currencyCode: String = "USD", isTotalRoundUp: Bool = true, areCategoriesEnabled: Bool = true, arePromosEnabled: Bool = true, defaultProductBackgroundColor: String = "#FFFFFF", creatorName: String = "Unknown", creatorId: UUID? = nil, ratesLastUpdated: Date? = nil, lastModified: Date = Date(), stripeBackendURL: String? = nil, stripePublishableKey: String? = nil, stripeCompanyName: String? = nil, stripeLocationId: String? = nil, bizumPhoneNumber: String? = nil, receiptSettingsData: Data? = nil) {
+    init(id: UUID = UUID(), name: String, date: Date, isLocked: Bool = false, isFinalised: Bool = false, pinCode: String? = nil, currencyCode: String = "USD", isTotalRoundUp: Bool = true, areCategoriesEnabled: Bool = true, arePromosEnabled: Bool = true, areCustomDiscountsEnabled: Bool = false, defaultProductBackgroundColor: String = "#FFFFFF", creatorName: String = "Unknown", creatorId: UUID? = nil, ratesLastUpdated: Date? = nil, lastModified: Date = Date(), stripeBackendURL: String? = nil, stripePublishableKey: String? = nil, stripeCompanyName: String? = nil, stripeLocationId: String? = nil, bizumPhoneNumber: String? = nil, receiptSettingsData: Data? = nil) {
         self.id = id
         self.name = name
         self.date = date
@@ -91,6 +92,7 @@ final class Event {
         self.isTotalRoundUp = isTotalRoundUp
         self.areCategoriesEnabled = areCategoriesEnabled
         self.arePromosEnabled = arePromosEnabled
+        self.areCustomDiscountsEnabled = areCustomDiscountsEnabled
         self.defaultProductBackgroundColor = defaultProductBackgroundColor
         self.creatorName = creatorName
         self.creatorId = creatorId

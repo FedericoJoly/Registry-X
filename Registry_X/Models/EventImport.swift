@@ -56,6 +56,7 @@ extension EventExport {
 
         event.stripeIntegrationEnabled = stripeIntegrationEnabled ?? false
         event.isStockControlEnabled = isStockControlEnabled ?? false
+        event.areCustomDiscountsEnabled = areCustomDiscountsEnabled ?? false
         
         modelContext.insert(event)
         
@@ -248,6 +249,7 @@ extension EventExport {
         // Merge boolean settings (additive - if either is ON, result is ON)
         event.areCategoriesEnabled = event.areCategoriesEnabled || areCategoriesEnabled
         event.arePromosEnabled = event.arePromosEnabled || arePromosEnabled
+        event.areCustomDiscountsEnabled = event.areCustomDiscountsEnabled || (areCustomDiscountsEnabled ?? false)
         event.isTotalRoundUp = event.isTotalRoundUp || isTotalRoundUp
         
         // Merge currencies (add new ones, update existing by code)

@@ -134,6 +134,7 @@ struct SetupView: View {
         event.isTotalRoundUp = draft.isTotalRoundUp
         event.areCategoriesEnabled = draft.areCategoriesEnabled
         event.arePromosEnabled = draft.arePromosEnabled
+        event.areCustomDiscountsEnabled = draft.areCustomDiscountsEnabled
         event.isStockControlEnabled = draft.isStockControlEnabled
         event.defaultProductBackgroundColor = draft.defaultProductBackgroundColor
         event.ratesLastUpdated = draft.ratesLastUpdated
@@ -1122,6 +1123,7 @@ struct DraftEventSettings: Equatable {
     var isTotalRoundUp: Bool
     var areCategoriesEnabled: Bool
     var arePromosEnabled: Bool
+    var areCustomDiscountsEnabled: Bool
     var isStockControlEnabled: Bool
     var defaultProductBackgroundColor: String
     var currencies: [DraftCurrency] // NEW
@@ -1158,6 +1160,7 @@ struct DraftEventSettings: Equatable {
         self.isTotalRoundUp = event.isTotalRoundUp
         self.areCategoriesEnabled = event.areCategoriesEnabled
         self.arePromosEnabled = event.arePromosEnabled
+        self.areCustomDiscountsEnabled = event.areCustomDiscountsEnabled
         self.isStockControlEnabled = event.isStockControlEnabled
         self.defaultProductBackgroundColor = event.defaultProductBackgroundColor
         self.ratesLastUpdated = event.ratesLastUpdated
@@ -1371,6 +1374,7 @@ struct DraftEventSettings: Equatable {
                lhs.isTotalRoundUp == rhs.isTotalRoundUp &&
                lhs.areCategoriesEnabled == rhs.areCategoriesEnabled &&
                lhs.arePromosEnabled == rhs.arePromosEnabled &&
+               lhs.areCustomDiscountsEnabled == rhs.areCustomDiscountsEnabled &&
                lhs.defaultProductBackgroundColor == rhs.defaultProductBackgroundColor &&
                lhs.currencies == rhs.currencies &&
                lhs.categories == rhs.categories &&
