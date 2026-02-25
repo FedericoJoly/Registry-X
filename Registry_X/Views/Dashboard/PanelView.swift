@@ -2387,7 +2387,11 @@ struct PanelFooterView: View {
             HStack(spacing: 8) {
                 // Left half: Clear + Split, equal widths
                 HStack(spacing: 8) {
-                    Button(action: onClear) {
+                    Button {
+                        isNotesFocused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        onClear()
+                    } label: {
                         Text("Clear")
                             .font(.system(size: 16, weight: .semibold))
                             .frame(maxWidth: .infinity)
@@ -2398,7 +2402,11 @@ struct PanelFooterView: View {
                     }
                     .disabled(!cartHasItems)
 
-                    Button(action: onSplit) {
+                    Button {
+                        isNotesFocused = false
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        onSplit()
+                    } label: {
                         Text("Split")
                             .font(.system(size: 16, weight: .semibold))
                             .frame(maxWidth: .infinity)
@@ -2410,7 +2418,11 @@ struct PanelFooterView: View {
                     .disabled(!cartHasItems)
                 }
                 // Right half: Pay Now, takes exactly the same space as the left HStack
-                Button(action: onCheckout) {
+                Button {
+                    isNotesFocused = false
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    onCheckout()
+                } label: {
                     Text("Pay Now")
                         .font(.system(size: 16, weight: .semibold))
                         .frame(maxWidth: .infinity)
