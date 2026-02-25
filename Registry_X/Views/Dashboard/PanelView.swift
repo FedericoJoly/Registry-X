@@ -1487,6 +1487,7 @@ struct PanelView: View {
         cart.removeAll()
         note = ""
         activeDiscountPromoIds.removeAll()
+        customDiscountValue = nil
         
         // Clear overrides after checkout
         overriddenTotal = nil
@@ -1564,6 +1565,7 @@ struct PanelView: View {
         cart.removeAll()
         note = ""
         activeDiscountPromoIds.removeAll()
+        customDiscountValue = nil
         
         // Clear overrides after checkout
         overriddenTotal = nil
@@ -1804,6 +1806,7 @@ struct PanelView: View {
             cart.removeAll()
             note = ""
             activeDiscountPromoIds.removeAll()
+            customDiscountValue = nil
             overriddenTotal = nil
             overriddenCategoryTotals.removeAll()
             pendingSplitEntries = []
