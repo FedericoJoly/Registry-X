@@ -1445,7 +1445,8 @@ struct PanelView: View {
             if qty > 0, let product = event.products.first(where: { $0.id == id }) {
                 // Use prorated price if there's an override, otherwise use converted price
                 let basePrice = proratedUnitPrice(for: id, quantity: qty)
-                let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                let promoPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                let finalPrice = promoPrice * customDiscountLineItemRatio()
                 let line = LineItem(
                     productName: product.name,
                     quantity: qty,
@@ -1533,7 +1534,8 @@ struct PanelView: View {
             if qty > 0, let product = event.products.first(where: { $0.id == id }) {
                 // Use prorated price if there's an override, otherwise use converted price
                 let basePrice = proratedUnitPrice(for: id, quantity: qty)
-                let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                let promoPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                let finalPrice = promoPrice * customDiscountLineItemRatio()
                 let line = LineItem(
                     productName: product.name,
                     quantity: qty,
@@ -1774,7 +1776,8 @@ struct PanelView: View {
             for (id, qty) in cart {
                 if qty > 0, let product = event.products.first(where: { $0.id == id }) {
                     let basePrice = proratedUnitPrice(for: id, quantity: qty)
-                    let finalPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                    let promoPrice = discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: basePrice)
+                    let finalPrice = promoPrice * customDiscountLineItemRatio()
                     let line = LineItem(productName: product.name, quantity: qty,
                                        unitPrice: finalPrice, subgroup: product.subgroup)
                     line.product = product
@@ -2058,6 +2061,24 @@ struct PanelView: View {
         }
         
         return result
+    }
+    
+    /// Computes the ratio by which each line-item price must be scaled to account for the
+    /// active custom discount.  Returns 1.0 when no custom discount is set.
+    func customDiscountLineItemRatio() -> Decimal {
+        guard let cd = customDiscountValue else { return 1 }
+        // Sum all items at their promo-adjusted prices
+        var totalAfterPromos: Decimal = 0
+        for (id, qty) in cart {
+            guard qty > 0 else { continue }
+            let base = proratedUnitPrice(for: id, quantity: qty)
+            totalAfterPromos += discountAdjustedUnitPrice(for: id, quantity: qty, baseUnitPrice: base) * Decimal(qty)
+        }
+        guard totalAfterPromos > 0 else { return 1 }
+        let discount = customDiscountIsPercentage
+            ? totalAfterPromos * (cd / 100)
+            : min(cd, totalAfterPromos)
+        return max(0, totalAfterPromos - discount) / totalAfterPromos
     }
     
     func applyOverride() {
@@ -2484,8 +2505,8 @@ struct PanelFooterView: View {
                                 let isOn = activeDiscountPromoIds.contains(promo.id)
                                 Button {
                                     guard !promoDisabled else { return }
-                                    if isOn { activeDiscountPromoIds.remove(promo.id) }
-                                    else     { activeDiscountPromoIds.insert(promo.id) }
+                                    if isOn { activeDiscountPromoIds = [] }           // deselect
+                                    else     { activeDiscountPromoIds = [promo.id] }  // select only this one
                                 } label: {
                                     Text(promo.name)
                                         .font(.system(size: 13, weight: .semibold))
