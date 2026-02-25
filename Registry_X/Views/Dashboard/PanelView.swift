@@ -2310,76 +2310,52 @@ struct PanelFooterView: View {
                 .padding(.top, 16) // Add top padding
             }
             
-            // Notes + Promo buttons row
+            // Notes + Promo buttons row — notes LEFT, scrollable promos RIGHT
             let discountPromos = event.promos.filter { $0.isActive && !$0.isDeleted && $0.mode == .discount }
             HStack(spacing: 8) {
+                // Notes field (left, flexible)
+                HStack(spacing: 8) {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(Color.gray.opacity(0.5))
+                        .font(.system(size: 15))
+                    TextField("Notes (optional)", text: $note)
+                        .font(.system(size: 15))
+                        .focused($isNotesFocused)
+                        .submitLabel(.done)
+                        .onSubmit { isNotesFocused = false }
+                }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .frame(height: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                )
+
+                // Promo buttons (right, horizontally scrollable) — only when promos exist
                 if !discountPromos.isEmpty {
-                    // Promo buttons (left side, up to half width)
-                    GeometryReader { geo in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                let count = CGFloat(min(discountPromos.count, 3))
-                                let spacing = 6 * (count - 1)
-                                let btnWidth = (geo.size.width - spacing) / count
-                                ForEach(discountPromos) { promo in
-                                    let isOn = activeDiscountPromoIds.contains(promo.id)
-                                    Button(action: {
-                                        if isOn {
-                                            activeDiscountPromoIds.remove(promo.id)
-                                        } else {
-                                            activeDiscountPromoIds.insert(promo.id)
-                                        }
-                                    }) {
-                                        Text(promo.name)
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.7)
-                                            .frame(width: discountPromos.count <= 3 ? btnWidth : 90, height: 46)
-                                            .background(isOn ? Color.green : Color(UIColor.systemGray5))
-                                            .foregroundStyle(isOn ? .white : .primary)
-                                            .cornerRadius(10)
-                                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(discountPromos) { promo in
+                                let isOn = activeDiscountPromoIds.contains(promo.id)
+                                Button(action: {
+                                    if isOn { activeDiscountPromoIds.remove(promo.id) }
+                                    else { activeDiscountPromoIds.insert(promo.id) }
+                                }) {
+                                    Text(promo.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                        .padding(.horizontal, 10)
+                                        .frame(height: 46)
+                                        .background(isOn ? Color.green : Color(UIColor.systemGray5))
+                                        .foregroundStyle(isOn ? .white : .primary)
+                                        .cornerRadius(12)
                                 }
                             }
                         }
                     }
-                    .frame(height: 46)
-                    
-                    // Notes field (right half)
-                    HStack(spacing: 8) {
-                        Image(systemName: "pencil")
-                            .foregroundStyle(Color.gray.opacity(0.5))
-                            .font(.system(size: 15))
-                        TextField("Notes (optional)", text: $note)
-                            .font(.system(size: 15))
-                            .focused($isNotesFocused)
-                            .submitLabel(.done)
-                            .onSubmit { isNotesFocused = false }
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 46)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-                } else {
-                    // No discount promos — full-width notes field
-                    HStack(spacing: 8) {
-                        Image(systemName: "pencil")
-                            .foregroundStyle(Color.gray.opacity(0.5))
-                            .font(.system(size: 15))
-                        TextField("Notes (optional)", text: $note)
-                            .font(.system(size: 15))
-                            .focused($isNotesFocused)
-                            .submitLabel(.done)
-                            .onSubmit { isNotesFocused = false }
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 46)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
+                    .frame(maxWidth: .infinity)
                 }
             }
             .padding(.top, 10)
