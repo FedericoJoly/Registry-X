@@ -61,10 +61,11 @@ struct SplitPaySheet: View {
 
     private func amountInMain(_ entry: SplitMethodEntry) -> Decimal {
         guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
-              val > 0,
-              entry.selectedCurrencyId != nil   // no currency selected → not counted yet
+              val > 0
         else { return 0 }
-        let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
+        // No button tapped → treat input as the charge currency (effectiveDisplayCode)
+        let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code
+                   ?? effectiveDisplayCode
         let r = rate(for: code)
         return r > 0 ? val / r : val
     }
@@ -78,12 +79,13 @@ struct SplitPaySheet: View {
         entries.reduce(Decimal(0)) { $0 + amountInMain($1) }
     }
 
-    /// Like enteredTotal but uses main currency as fallback — drives the live "remaining" display
-    /// so the counter ticks as the user types, even before selecting a currency.
+    /// Like amountInMain but always returns a value — drives the live "remaining" counter
+    /// so it ticks as the user types before they've tapped a currency button.
     private func amountInMainForDisplay(_ entry: SplitMethodEntry) -> Decimal {
         guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
               val > 0 else { return 0 }
-        let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
+        let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code
+                   ?? effectiveDisplayCode
         let r = rate(for: code)
         return r > 0 ? val / r : val
     }
@@ -98,7 +100,8 @@ struct SplitPaySheet: View {
     }
 
     private var filledEntries: [SplitMethodEntry] {
-        entries.filter { amountInMain($0) > 0 && $0.selectedCurrencyId != nil }
+        // An entry is filled if it has a positive amount; currency defaults to effectiveDisplayCode if nil
+        entries.filter { amountInMain($0) > 0 }
     }
 
     private var canConfirm: Bool {
@@ -133,11 +136,12 @@ struct SplitPaySheet: View {
     // MARK: - Build SplitEntry array for callback
     private func buildSplitEntries() -> [SplitEntry] {
         filledEntries.compactMap { entry in
-            guard let currId = entry.selectedCurrencyId,
-                  let currency = availableCurrencies.first(where: { $0.id == currId }),
-                  let rawVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
+            guard let rawVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
                   rawVal > 0
             else { return nil }
+            // Use the explicitly-selected currency, or fall back to the charge currency
+            let currencyCode = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code
+                               ?? effectiveDisplayCode
             let aInMain = amountInMain(entry)
             return SplitEntry(
                 method: entry.method.name,
@@ -145,7 +149,7 @@ struct SplitPaySheet: View {
                 colorHex: entry.method.colorHex,
                 amountInMain: aInMain,
                 chargeAmount: rawVal,
-                currencyCode: currency.code
+                currencyCode: currencyCode
             )
         }
     }
@@ -326,16 +330,11 @@ struct SplitPaySheet: View {
             }
         }
         .onAppear {
-            // Always pre-select the charge currency so typed numbers are in the displayed currency.
-            // If a method can't process that currency, the operator will tap a supported button
-            // and the amount will auto-convert at that point.
-            let chargeCurrencyCode = displayCurrencyCode ?? mainCurrencyCode
-            let chargeCurrencyId = availableCurrencies.first(where: { $0.code == chargeCurrencyCode })?.id
-            entries = availableMethods.map { method in
-                var entry = SplitMethodEntry(method: method)
-                entry.selectedCurrencyId = chargeCurrencyId
-                return entry
-            }
+            // Leave selectedCurrencyId = nil so no currency button is highlighted.
+            // The math implicitly uses effectiveDisplayCode (the panel charge currency).
+            // The user explicitly taps a button only if they want a different currency,
+            // at which point the amount converts automatically.
+            entries = availableMethods.map { SplitMethodEntry(method: $0) }
         }
     }
 }
