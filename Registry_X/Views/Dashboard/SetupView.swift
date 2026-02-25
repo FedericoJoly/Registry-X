@@ -1616,6 +1616,7 @@ struct SettingsActionButton: View {
             .background(color)
             .foregroundColor(foreground)
             .cornerRadius(10)
+            .contentShape(Rectangle())
         }
     }
 }
