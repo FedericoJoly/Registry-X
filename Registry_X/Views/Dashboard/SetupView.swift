@@ -1164,17 +1164,9 @@ struct DraftEventSettings: Equatable {
         self.isStockControlEnabled = event.isStockControlEnabled
         self.defaultProductBackgroundColor = event.defaultProductBackgroundColor
         self.ratesLastUpdated = event.ratesLastUpdated
-        // Default closingDate to event.date + 7 days at 23:59 if not already set
-        if let existing = event.closingDate {
-            self.closingDate = existing
-        } else {
-            let sevenDaysLater = Calendar.current.date(byAdding: .day, value: 7, to: event.date) ?? event.date
-            var components = Calendar.current.dateComponents([.year, .month, .day], from: sevenDaysLater)
-            components.hour = 23
-            components.minute = 59
-            components.second = 0
-            self.closingDate = Calendar.current.date(from: components)
-        }
+        // Copy closingDate as-is; nil means Auto-Finalise is off
+        // (The default 7-day date is only applied when the toggle is turned ON in SetupGeneralView)
+        self.closingDate = event.closingDate
         
         // Migrate to new currencies model if needed
         if !event.currencies.isEmpty {
@@ -1375,6 +1367,7 @@ struct DraftEventSettings: Equatable {
                lhs.areCategoriesEnabled == rhs.areCategoriesEnabled &&
                lhs.arePromosEnabled == rhs.arePromosEnabled &&
                lhs.areCustomDiscountsEnabled == rhs.areCustomDiscountsEnabled &&
+               lhs.isStockControlEnabled == rhs.isStockControlEnabled &&
                lhs.defaultProductBackgroundColor == rhs.defaultProductBackgroundColor &&
                lhs.currencies == rhs.currencies &&
                lhs.categories == rhs.categories &&
