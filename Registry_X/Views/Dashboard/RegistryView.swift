@@ -1010,7 +1010,7 @@ struct TransactionCard: View {
                 Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2)))).font(.subheadline).foregroundStyle(.green)
             }
             Spacer()
-            Button(action: startEditingNote) { Image(systemName: "pencil").foregroundStyle(Color.orange) }
+            Button(action: startEditingNote) { Image(systemName: "note.text").foregroundStyle(Color.orange) }
                 .buttonStyle(.borderless).disabled(event.isLocked)
             Button(action: { showingReceiptSheet = true }) { Image(systemName: "envelope").foregroundStyle(Color.blue) }
                 .buttonStyle(.borderless).disabled(isSendingReceipt).opacity(isSendingReceipt ? 0.4 : 1.0)
