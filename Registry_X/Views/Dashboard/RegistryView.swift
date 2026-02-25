@@ -932,11 +932,6 @@ struct TransactionCard: View {
             HStack(spacing: 6) {
                 Image(systemName: paymentIcon).font(.subheadline).foregroundStyle(paymentIconColor)
                 Text(paymentMethodOption?.name ?? transaction.paymentMethod.rawValue.capitalized).font(.subheadline).foregroundStyle(.secondary)
-                if event.areCategoriesEnabled, let firstCategory = transaction.lineItems.first?.product?.category {
-                    let categoryColor = Color(hex: firstCategory.hexColor).normalizeForRegistry()
-                    Text(firstCategory.name).font(.caption.weight(.semibold)).foregroundStyle(categoryColor)
-                        .padding(.horizontal, 6).padding(.vertical, 2).background(categoryColor.opacity(0.15)).cornerRadius(4)
-                }
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
         }

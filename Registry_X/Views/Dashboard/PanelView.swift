@@ -758,35 +758,49 @@ struct PanelView: View {
     
     @ViewBuilder
     private var productPagerView: some View {
-        let allProducts: [Product]
+        let visibleProducts = event.products.filter { $0.isActive && !$0.isDeleted }
         if activeCategories.isEmpty {
-            // No enabled categories - show all products
-            allProducts = event.products
-                .filter { $0.isActive && !$0.isDeleted }
-                .sorted { $0.sortOrder < $1.sortOrder }
+            // No enabled categories - show all products (no color inheritance)
+            return AnyView(ProductListView(
+                category: nil,
+                products: visibleProducts.sorted { $0.sortOrder < $1.sortOrder },
+                cart: $cart,
+                rate: rate,
+                currencyCode: currentCurrencyCode,
+                event: event,
+                defaultBackgroundColor: event.defaultProductBackgroundColor
+            ))
         } else if !event.areCategoriesEnabled {
-            // Single mode - show first (only) category's products
+            // Single mode - pass category so color inheritance works
             let category = activeCategories[0]
-            allProducts = event.products
-                .filter { $0.category == category && $0.isActive && !$0.isDeleted }
-                .sorted { $0.sortOrder < $1.sortOrder }
+            return AnyView(ProductListView(
+                category: category,
+                products: visibleProducts.filter { $0.category == category }.sorted { $0.sortOrder < $1.sortOrder },
+                cart: $cart,
+                rate: rate,
+                currencyCode: currentCurrencyCode,
+                event: event
+            ))
         } else {
-            // Multi mode - flat list sorted by category order then product order
-            allProducts = activeCategories.flatMap { cat in
-                event.products
-                    .filter { $0.category == cat && $0.isActive && !$0.isDeleted }
-                    .sorted { $0.sortOrder < $1.sortOrder }
-            }
+            // Multi mode - horizontal swipeable tabs, each with category color
+            return AnyView(
+                TabView(selection: $selectedTab) {
+                    ForEach(Array(activeCategories.enumerated()), id: \.element.id) { index, category in
+                        ProductListView(
+                            category: category,
+                            products: visibleProducts.filter { $0.category == category }.sorted { $0.sortOrder < $1.sortOrder },
+                            cart: $cart,
+                            rate: rate,
+                            currencyCode: currentCurrencyCode,
+                            event: event
+                        )
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut, value: selectedTab)
+            )
         }
-        return ProductListView(
-            category: nil,
-            products: allProducts,
-            cart: $cart,
-            rate: rate,
-            currencyCode: currentCurrencyCode,
-            event: event,
-            defaultBackgroundColor: event.areCategoriesEnabled ? nil : event.defaultProductBackgroundColor
-        )
     }
     
     private func currencySymbol(for code: String) -> String {
@@ -795,13 +809,14 @@ struct PanelView: View {
     
     // MARK: - Category Subtotals Strip (multi-category mode)
     @ViewBuilder private var categorySubtotalsSection: some View {
-        let rowHeight: CGFloat = 44
-        let maxVisible: CGFloat = 2
+        let rowHeight: CGFloat = 34
+        let gap: CGFloat = 6
         let totalRows = CGFloat(activeCategories.count)
-        let stripHeight = min(totalRows, maxVisible) * rowHeight + (min(totalRows, maxVisible) - 1) * 8
+        let visibleRows = min(totalRows, 2)
+        let stripHeight = visibleRows * rowHeight + (visibleRows - 1) * gap
         
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 8) {
+            VStack(spacing: gap) {
                 ForEach(activeCategories) { cat in
                     let catTotal = categorySubtotal(for: cat.id)
                     let originalCatTotal = calculateOriginalCategoryTotal(categoryId: cat.id)
@@ -809,23 +824,23 @@ struct PanelView: View {
                     
                     HStack {
                         Text(cat.name)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.primary)
                         if isOverridden {
                             Text(currencySymbol(for: currentCurrencyCode) + originalCatTotal.formatted(.number.precision(.fractionLength(2))))
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .strikethrough()
                         }
                         Spacer()
                         Text(currencySymbol(for: currentCurrencyCode) + catTotal.formatted(.number.precision(.fractionLength(2))))
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(isOverridden ? .green : .primary)
                     }
                     .padding(.horizontal, 12)
                     .frame(height: rowHeight)
-                    .background(Color(hex: cat.hexColor).opacity(0.35))
-                    .cornerRadius(10)
+                    .background(Color(hex: cat.hexColor).opacity(0.30))
+                    .cornerRadius(8)
                     .onTapGesture {
                         overrideTarget = .categorySubtotal(categoryId: cat.id)
                         overrideInputText = catTotal.formatted(.number.precision(.fractionLength(2)))
@@ -836,7 +851,7 @@ struct PanelView: View {
             .padding(.horizontal, 12)
         }
         .frame(height: max(stripHeight, rowHeight))
-        .padding(.top, 8)
+        .padding(.top, 6)
     }
     
     var body: some View {
