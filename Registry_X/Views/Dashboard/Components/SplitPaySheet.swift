@@ -271,6 +271,7 @@ struct SplitPaySheet: View {
                                 entry: $entry,
                                 availableCurrencies: availableCurrencies,
                                 mainCurrencyCode: mainCurrencyCode,
+                                implicitCurrencyCode: effectiveDisplayCode,
                                 canDuplicate: canDuplicate(entry),
                                 isCurrencyEnabled: { currency in
                                     if entry.method.enabledCurrencies.isEmpty { return true }
@@ -344,6 +345,9 @@ struct SplitMethodRow: View {
     @Binding var entry: SplitMethodEntry
     let availableCurrencies: [Currency]
     let mainCurrencyCode: String
+    /// The charge currency implicitly assumed when no button is tapped.
+    /// Must match effectiveDisplayCode from SplitPaySheet.
+    let implicitCurrencyCode: String
     let canDuplicate: Bool
     let isCurrencyEnabled: (Currency) -> Bool
     let convert: (Decimal, String, String) -> Decimal
@@ -355,7 +359,8 @@ struct SplitMethodRow: View {
     }
 
     private func currentCurrencyCode() -> String {
-        availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? mainCurrencyCode
+        // When no button is tapped, treat input as the charge currency, not mainCurrencyCode
+        availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code ?? implicitCurrencyCode
     }
 
     var body: some View {
