@@ -29,6 +29,7 @@ struct SplitPaySheet: View {
     var onVoidAll: (() -> Void)? = nil
 
     @State private var entries: [SplitMethodEntry] = []
+    @State private var showingChargeCurrencyWarning = false
     @FocusState private var focusedRowId: UUID?
 
     // MARK: - Caps
@@ -109,6 +110,17 @@ struct SplitPaySheet: View {
         // Need ≥2 entries total (locked + editable)
         let totalEntries = lockedEntries.count + filledEntries.count
         return totalEntries >= 2
+    }
+
+    /// True when a non-main charge currency is set but every filled row has been
+    /// explicitly switched away from it (none use it implicitly or explicitly).
+    private var noEntriesUseChargeCurrency: Bool {
+        guard let dc = displayCurrencyCode else { return false }  // only relevant when charge ≠ main
+        let chargeCurrencyId = availableCurrencies.first(where: { $0.code == dc })?.id
+        // A row uses the charge currency if: selectedCurrencyId == chargeId OR selectedCurrencyId == nil (implicit)
+        return !filledEntries.contains { entry in
+            entry.selectedCurrencyId == nil || entry.selectedCurrencyId == chargeCurrencyId
+        }
     }
 
     // How many rows already exist for a given method option id
@@ -323,11 +335,22 @@ struct SplitPaySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("OK") {
-                        onConfirm(buildSplitEntries())
+                        if noEntriesUseChargeCurrency {
+                            showingChargeCurrencyWarning = true
+                        } else {
+                            onConfirm(buildSplitEntries())
+                        }
                     }
                     .bold()
                     .disabled(!canConfirm)
                 }
+            }
+            .alert("Charge currency unused", isPresented: $showingChargeCurrencyWarning) {
+                Button("Proceed anyway", role: .destructive) { onConfirm(buildSplitEntries()) }
+                Button("Go back", role: .cancel) { }
+            } message: {
+                let sym = symbol(for: displayCurrencyCode ?? mainCurrencyCode)
+                Text("The selected currency (\(sym)) hasn't been applied to any method — all rows were switched to other currencies. Are you sure you want to proceed?")
             }
         }
         .onAppear {
