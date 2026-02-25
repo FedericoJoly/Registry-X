@@ -423,18 +423,15 @@ struct SplitMethodRow: View {
                     let selected = entry.selectedCurrencyId == currency.id
                     Button(action: {
                         guard enabled else { return }
-                        if selected {
-                            entry.selectedCurrencyId = nil
-                        } else {
-                            let oldCode = currentCurrencyCode()
-                            let newCode = currency.code
-                            if hasValue,
-                               let oldVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) {
-                                let newVal = convert(oldVal, oldCode, newCode)
-                                entry.amountText = newVal.formatted(.number.precision(.fractionLength(2)))
-                            }
-                            entry.selectedCurrencyId = currency.id
+                        guard !selected else { return }   // already selected → no-op
+                        let oldCode = currentCurrencyCode()
+                        let newCode = currency.code
+                        if hasValue,
+                           let oldVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) {
+                            let newVal = convert(oldVal, oldCode, newCode)
+                            entry.amountText = newVal.formatted(.number.precision(.fractionLength(2)))
                         }
+                        entry.selectedCurrencyId = currency.id
                     }) {
                         Text(currency.symbol)
                             .font(.system(size: 13, weight: .bold))
