@@ -2310,56 +2310,8 @@ struct PanelFooterView: View {
                 .padding(.top, 16) // Add top padding
             }
             
-            // Notes + Promo buttons row — notes LEFT, scrollable promos RIGHT
-            let discountPromos = event.promos.filter { $0.isActive && !$0.isDeleted && $0.mode == .discount }
-            HStack(spacing: 8) {
-                // Notes field (left, flexible)
-                HStack(spacing: 8) {
-                    Image(systemName: "pencil")
-                        .foregroundStyle(Color.gray.opacity(0.5))
-                        .font(.system(size: 15))
-                    TextField("Notes (optional)", text: $note)
-                        .font(.system(size: 15))
-                        .focused($isNotesFocused)
-                        .submitLabel(.done)
-                        .onSubmit { isNotesFocused = false }
-                }
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                )
+            notesAndPromoRow
 
-                // Promo buttons (right, horizontally scrollable) — only when promos exist
-                if !discountPromos.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(discountPromos) { promo in
-                                let isOn = activeDiscountPromoIds.contains(promo.id)
-                                Button(action: {
-                                    if isOn { activeDiscountPromoIds.remove(promo.id) }
-                                    else { activeDiscountPromoIds.insert(promo.id) }
-                                }) {
-                                    Text(promo.name)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
-                                        .padding(.horizontal, 10)
-                                        .frame(height: 46)
-                                        .background(isOn ? Color.green : Color(UIColor.systemGray5))
-                                        .foregroundStyle(isOn ? .white : .primary)
-                                        .cornerRadius(12)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .padding(.top, 10)
-            .scrollDismissesKeyboard(.interactively)
             
             // Action buttons — Clear 25% · Split 25% · Pay Now 50%
             // Using nested HStacks with maxWidth:.infinity avoids the GeometryReader
@@ -2426,8 +2378,64 @@ struct PanelFooterView: View {
         return converted
     }
     
+    // MARK: - Notes + Promo Row (extracted to help the type-checker)
+    @ViewBuilder private var notesAndPromoRow: some View {
+        let discountPromos = event.promos.filter { $0.isActive && !$0.isDeleted && $0.mode == .discount }
+        HStack(spacing: 8) {
+            // Notes field (left, flexible)
+            HStack(spacing: 8) {
+                Image(systemName: "pencil")
+                    .foregroundStyle(Color.gray.opacity(0.5))
+                    .font(.system(size: 15))
+                TextField("Notes (optional)", text: $note)
+                    .font(.system(size: 15))
+                    .focused($isNotesFocused)
+                    .submitLabel(.done)
+                    .onSubmit { isNotesFocused = false }
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+            )
+
+            // Promo buttons (right): ≤3 fill width evenly; >3 scroll with 3-button-wide slots
+            if !discountPromos.isEmpty {
+                GeometryReader { geo in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            let visibleCount = CGFloat(min(discountPromos.count, 3))
+                            let btnWidth = (geo.size.width - 8 * (visibleCount - 1)) / visibleCount
+                            ForEach(discountPromos) { promo in
+                                let isOn = activeDiscountPromoIds.contains(promo.id)
+                                Button {
+                                    if isOn { activeDiscountPromoIds.remove(promo.id) }
+                                    else     { activeDiscountPromoIds.insert(promo.id) }
+                                } label: {
+                                    Text(promo.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                        .frame(width: btnWidth, height: 46)
+                                        .background(isOn ? Color.green : Color(UIColor.systemGray5))
+                                        .foregroundStyle(isOn ? .white : .primary)
+                                        .cornerRadius(12)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 46)
+            }
+        }
+        .padding(.top, 10)
+        .scrollDismissesKeyboard(.interactively)
+    }
+
     func currencySymbol(for code: String) -> String {
-        // Use currency model symbol if available, fallback to currency code
         return event.currencies.first(where: { $0.code == code })?.symbol ?? code
     }
 }
