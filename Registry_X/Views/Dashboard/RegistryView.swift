@@ -971,7 +971,7 @@ struct TransactionCard: View {
         if isEditingNote || hasNote {
             Divider().padding(.horizontal, 14)
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "note.text").foregroundStyle(isEditingNote ? Color.orange : Color.primary).font(.footnote).padding(.top, 2)
+                Image(systemName: "note.text").foregroundStyle(isEditingNote ? Color.orange : .secondary).font(.footnote).padding(.top, 2)
                 if isEditingNote {
                     TextField("Add a note…", text: $editedNoteText, axis: .vertical)
                         .font(.subheadline).textFieldStyle(.plain).lineLimit(1...5).submitLabel(.done).onSubmit { saveNote() }
@@ -1010,7 +1010,7 @@ struct TransactionCard: View {
                 Text("Saved " + currencySymbol(for: transaction.currencyCode) + totalSavings.formatted(.number.precision(.fractionLength(2)))).font(.subheadline).foregroundStyle(.green)
             }
             Spacer()
-            Button(action: startEditingNote) { Image(systemName: "note.text").foregroundStyle(Color.orange) }
+            Button(action: startEditingNote) { Image(systemName: "note.text").foregroundStyle(Color.primary) }
                 .buttonStyle(.borderless).disabled(event.isLocked)
             Button(action: { showingReceiptSheet = true }) { Image(systemName: "envelope").foregroundStyle(Color.blue) }
                 .buttonStyle(.borderless).disabled(isSendingReceipt).opacity(isSendingReceipt ? 0.4 : 1.0)
