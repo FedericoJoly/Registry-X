@@ -839,7 +839,7 @@ struct PanelView: View {
                     }
                     .padding(.horizontal, 12)
                     .frame(height: rowHeight)
-                    .background(Color(hex: cat.hexColor).opacity(0.55))
+                    .background(Color(hex: cat.hexColor))
                     .cornerRadius(8)
                     .onTapGesture {
                         overrideTarget = .categorySubtotal(categoryId: cat.id)
