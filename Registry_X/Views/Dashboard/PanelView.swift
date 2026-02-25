@@ -1512,6 +1512,8 @@ struct PanelView: View {
                 transaction.lineItems.append(line)
             }
         }
+        // Ensure sum(item.subtotal) == totalAmount exactly (eliminates Decimal precision drift)
+        balanceLineItems(for: transaction)
         
         event.transactions.append(transaction)
         
@@ -1602,6 +1604,8 @@ struct PanelView: View {
                 transaction.lineItems.append(line)
             }
         }
+        // Ensure sum(item.subtotal) == totalAmount exactly (eliminates Decimal precision drift)
+        balanceLineItems(for: transaction)
         
         event.transactions.append(transaction)
         // Store card last4 if this was a card/TTP payment
@@ -2137,6 +2141,23 @@ struct PanelView: View {
             ? totalAfterPromos * (cd / 100)
             : min(cd, totalAfterPromos)
         return max(0, totalAfterPromos - discount) / totalAfterPromos
+    }
+    
+    /// Adjusts the last line item's unitPrice by the precision remainder so that
+    /// sum(item.subtotal) == transaction.totalAmount exactly.
+    /// Only call this when totalAmount and item prices are in the same currency
+    /// (i.e. non-split manual/Stripe checkouts).
+    private func balanceLineItems(for transaction: Transaction) {
+        guard !transaction.lineItems.isEmpty else { return }
+        let itemSum = transaction.lineItems.reduce(Decimal(0)) { $0 + $1.subtotal }
+        let diff = transaction.totalAmount - itemSum
+        // Only correct tiny precision differences (< 1 currency unit).
+        // Larger diffs would indicate a real bug and should NOT be silently hidden.
+        guard abs(diff) > 0 && abs(diff) < 1 else { return }
+        let last = transaction.lineItems[transaction.lineItems.count - 1]
+        guard last.quantity > 0 else { return }
+        last.unitPrice += diff / Decimal(last.quantity)
+        last.subtotal = last.unitPrice * Decimal(last.quantity)
     }
     
     func applyOverride() {
