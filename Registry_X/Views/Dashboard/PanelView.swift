@@ -59,7 +59,7 @@ struct PanelView: View {
     @State private var cart: [UUID: Int] = [:] // ProductID : Quantity
     @State private var currentCurrencyCode: String
     @State private var note: String = ""
-    @State private var selectedTab = 0 // For category paging
+    @State private var selectedTab = 0 // unused but kept for state compatibility
     @State private var activeDiscountPromoIds: Set<UUID> = [] // Discount promos toggled ON in this session
     
     // Custom on-the-fly discount
@@ -758,47 +758,87 @@ struct PanelView: View {
     
     @ViewBuilder
     private var productPagerView: some View {
+        let allProducts: [Product]
         if activeCategories.isEmpty {
             // No enabled categories - show all products
-            ProductListView(
-                category: nil,
-                products: event.products.filter { $0.isActive && !$0.isDeleted }.sorted { $0.sortOrder < $1.sortOrder },
-                cart: $cart,
-                rate: rate,
-                currencyCode: currentCurrencyCode,
-                event: event,
-                defaultBackgroundColor: event.defaultProductBackgroundColor
-            )
+            allProducts = event.products
+                .filter { $0.isActive && !$0.isDeleted }
+                .sorted { $0.sortOrder < $1.sortOrder }
         } else if !event.areCategoriesEnabled {
-            // Single mode - only one category enabled, show simple UX without TabView
+            // Single mode - show first (only) category's products
             let category = activeCategories[0]
-            ProductListView(
-                category: category,
-                products: event.products.filter { $0.category == category && $0.isActive && !$0.isDeleted }.sorted { $0.sortOrder < $1.sortOrder },
-                cart: $cart,
-                rate: rate,
-                currencyCode: currentCurrencyCode,
-                event: event
-            )
+            allProducts = event.products
+                .filter { $0.category == category && $0.isActive && !$0.isDeleted }
+                .sorted { $0.sortOrder < $1.sortOrder }
         } else {
-            // Multiple mode - show TabView pager for multiple categories
-            TabView(selection: $selectedTab) {
-                ForEach(Array(activeCategories.enumerated()), id: \.element.id) { index, category in
-                    ProductListView(
-                        category: category,
-                        products: event.products.filter { $0.category == category && $0.isActive && !$0.isDeleted }.sorted { $0.sortOrder < $1.sortOrder },
-                        cart: $cart,
-                        rate: rate,
-                        currencyCode: currentCurrencyCode,
-                        event: event
-                    )
-                    .tag(index)
+            // Multi mode - flat list sorted by category order then product order
+            allProducts = activeCategories.flatMap { cat in
+                event.products
+                    .filter { $0.category == cat && $0.isActive && !$0.isDeleted }
+                    .sorted { $0.sortOrder < $1.sortOrder }
+            }
+        }
+        return ProductListView(
+            category: nil,
+            products: allProducts,
+            cart: $cart,
+            rate: rate,
+            currencyCode: currentCurrencyCode,
+            event: event,
+            defaultBackgroundColor: event.areCategoriesEnabled ? nil : event.defaultProductBackgroundColor
+        )
+    }
+    
+    private func currencySymbol(for code: String) -> String {
+        event.currencies.first(where: { $0.code == code })?.symbol ?? code
+    }
+    
+    // MARK: - Category Subtotals Strip (multi-category mode)
+    @ViewBuilder private var categorySubtotalsSection: some View {
+        let rowHeight: CGFloat = 44
+        let maxVisible: CGFloat = 2
+        let totalRows = CGFloat(activeCategories.count)
+        let stripHeight = min(totalRows, maxVisible) * rowHeight + (min(totalRows, maxVisible) - 1) * 8
+        
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 8) {
+                ForEach(activeCategories) { cat in
+                    let catTotal = categorySubtotal(for: cat.id)
+                    let originalCatTotal = calculateOriginalCategoryTotal(categoryId: cat.id)
+                    let isOverridden = overriddenCategoryTotals[cat.id] != nil
+                    
+                    HStack {
+                        Text(cat.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        if isOverridden {
+                            Text(currencySymbol(for: currentCurrencyCode) + originalCatTotal.formatted(.number.precision(.fractionLength(2))))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .strikethrough()
+                        }
+                        Spacer()
+                        Text(currencySymbol(for: currentCurrencyCode) + catTotal.formatted(.number.precision(.fractionLength(2))))
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(isOverridden ? .green : .primary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: rowHeight)
+                    .background(Color(hex: cat.hexColor).opacity(0.35))
+                    .cornerRadius(10)
+                    .onTapGesture {
+                        overrideTarget = .categorySubtotal(categoryId: cat.id)
+                        overrideInputText = catTotal.formatted(.number.precision(.fractionLength(2)))
+                        showingOverrideSheet = true
+                    }
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .animation(.easeInOut, value: selectedTab)
+            .padding(.horizontal, 12)
         }
+        .frame(height: max(stripHeight, rowHeight))
+        .padding(.top, 8)
     }
+    
     var body: some View {
         VStack(spacing: 0) {
             // 1. Top Bar
@@ -812,25 +852,27 @@ struct PanelView: View {
             // 2. Table Headers
             PanelTableHeaderView()
             
-            // 3. Products Pager - fixed height based on mode
+            // 3. Products Pager - 8 rows @ 44pt = 352px for both modes
             productPagerView
-                .frame(height: event.areCategoriesEnabled ? 310 : 396) // 7 rows for multi, 9 for single @ 44pt each
+                .frame(height: 352)
                 .disabled(event.isLocked)
                 .opacity(event.isLocked ? 0.5 : 1.0)
             
-            // 4. Spacer to ensure products touch footer
+            // 3b. Category subtotals strip (multi-category only)
+            if event.areCategoriesEnabled && !activeCategories.isEmpty {
+                categorySubtotalsSection
+            }
+            
+            // 4. Spacer
             Spacer(minLength: 0)
             
             // 5. Footer
             PanelFooterView(
-                activeCategories: activeCategories,
                 event: event,
                 currentCurrencyCode: $currentCurrencyCode,
                 derivedTotal: derivedTotal,
                 note: $note,
                 activeDiscountPromoIds: $activeDiscountPromoIds,
-                categories: event.categories,
-                products: event.products,
                 cart: cart,
                 rate: rate,
                 overriddenTotal: $overriddenTotal,
@@ -842,8 +884,6 @@ struct PanelView: View {
                 customDiscountIsPercentage: $customDiscountIsPercentage,
                 showingCustomDiscountSheet: $showingCustomDiscountSheet,
                 calculateOriginalTotal: calculateOriginalTotal,
-                calculateOriginalCategoryTotal: calculateOriginalCategoryTotal,
-                categorySubtotal: { categoryId in categorySubtotal(for: categoryId) },
                 onClear: {
                     withAnimation {
                         showingClearConfirmation = true
@@ -2160,15 +2200,12 @@ struct PanelTableHeaderView: View {
 
 struct PanelFooterView: View {
     @FocusState private var isNotesFocused: Bool
-    let activeCategories: [Category]
     @Bindable var event: Event
     @Binding var currentCurrencyCode: String
     let derivedTotal: Decimal
     @Binding var note: String
     @Binding var activeDiscountPromoIds: Set<UUID>
     
-    let categories: [Category]
-    let products: [Product]
     let cart: [UUID: Int]
     let rate: Decimal
     
@@ -2185,8 +2222,6 @@ struct PanelFooterView: View {
     @Binding var showingCustomDiscountSheet: Bool
 
     let calculateOriginalTotal: () -> Decimal
-    let calculateOriginalCategoryTotal: (UUID) -> Decimal
-    let categorySubtotal: (UUID) -> Decimal
     
     let onClear: () -> Void
     let onSplit: () -> Void
@@ -2194,96 +2229,49 @@ struct PanelFooterView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            if event.areCategoriesEnabled {
-                // MULTI-CATEGORY LAYOUT: 2-column with subtotals
-                // Top section: 2-column layout
-                HStack(alignment: .top, spacing: 12) {
-                // LEFT COLUMN: Subtotals + Total stacked vertically
-                VStack(alignment: .leading, spacing: 0) {
-                    // Subtotals - show exactly 2 rows
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(activeCategories) { cat in
-                                let catTotal = categorySubtotal(cat.id)
-                                let originalCatTotal = calculateOriginalCategoryTotal(cat.id)
-                                let isOverridden = overriddenCategoryTotals[cat.id] != nil
-                                
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("\(cat.name) Subtotal:")
-                                            .font(.system(size: 15))
-                                            .foregroundStyle(.black)
-                                        if isOverridden {
-                                            Text(currencySymbol(for: currentCurrencyCode) + originalCatTotal.formatted(.number.precision(.fractionLength(2))))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                                .strikethrough()
-                                        }
-                                    }
-                                    Spacer()
-                                    Text(currencySymbol(for: currentCurrencyCode) + catTotal.formatted(.number.precision(.fractionLength(2))))
-                                        .font(.system(size: 15, weight: .bold))
-                                        .foregroundStyle(isOverridden ? .green : .black)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color(hex: cat.hexColor))
-                                .cornerRadius(8)
-                                .onTapGesture {
-                                    overrideTarget = .categorySubtotal(categoryId: cat.id)
-                                    overrideInputText = catTotal.formatted(.number.precision(.fractionLength(2)))
-                                    showingOverrideSheet = true
-                                }
-                            }
-                        }
-                    }
-                    .frame(height: 120) // Reduced from 86 to show exactly 2 rows without peek
-                    
-                    Spacer(minLength: 0) // Push Total down
-                    
-                    // Total - aligned to center of 3rd currency button
-                    let isGeneralOverridden = overriddenTotal != nil
-                    let originalGeneralTotal = calculateOriginalTotal()
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Total:")
-                                .font(.system(size: 24, weight: .bold))
-                            Spacer()
-                            Text(currencySymbol(for: currentCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(isGeneralOverridden ? .green : .primary)
-                        }
-                        if isGeneralOverridden {
-                            HStack {
-                                Spacer()
-                                Text(currencySymbol(for: currentCurrencyCode) + originalGeneralTotal.formatted(.number.precision(.fractionLength(2))))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .strikethrough()
-                            }
-                        }
-                    }
-                    .onTapGesture {
-                        overrideTarget = .generalTotal
-                        overrideInputText = derivedTotal.formatted(.number.precision(.fractionLength(2)))
-                        showingOverrideSheet = true
-                    }
-                    
-                    //Spacer().frame(height: 16) // Push Total up to center with 3rd currency button
+            // Total row — full width, tappable to override
+            let isGeneralOverridden = overriddenTotal != nil
+            let originalGeneralTotal = calculateOriginalTotal()
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Total:")
+                        .font(.system(size: 24, weight: .bold))
+                    Spacer()
+                    Text(currencySymbol(for: currentCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(isGeneralOverridden ? .green : .primary)
                 }
-                .frame(height: 156) // Match currency buttons column height (3 * 52)
-                
-                // RIGHT COLUMN: Currency buttons
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 8) {
+                if isGeneralOverridden {
+                    HStack {
+                        Spacer()
+                        Text(currencySymbol(for: currentCurrencyCode) + originalGeneralTotal.formatted(.number.precision(.fractionLength(2))))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .strikethrough()
+                    }
+                }
+            }
+            .onTapGesture {
+                overrideTarget = .generalTotal
+                overrideInputText = derivedTotal.formatted(.number.precision(.fractionLength(2)))
+                showingOverrideSheet = true
+            }
+            .padding(.top, 16)
+            
+            // Currency buttons — horizontal, fills full width
+            GeometryReader { geometry in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
                         ForEach(event.currencies.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }, id: \.id) { currency in
+                            let buttonCount = CGFloat(min(event.currencies.filter { $0.isEnabled }.count, 3))
+                            let totalSpacing = 10 * (buttonCount - 1)
+                            let buttonWidth = (geometry.size.width - totalSpacing) / buttonCount
+                            
                             Button(action: {
-                                // Capture rates BEFORE changing currentCurrencyCode
                                 let oldRate = event.currencies.first(where: { $0.code == currentCurrencyCode })?.rate ?? 1
                                 let newRate = event.currencies.first(where: { $0.code == currency.code })?.rate ?? 1
                                 currentCurrencyCode = currency.code
-                                // Convert overrides to new currency instead of clearing
                                 if oldRate != newRate {
                                     if let override = overriddenTotal { overriddenTotal = override / oldRate * newRate }
                                     for key in overriddenCategoryTotals.keys {
@@ -2291,91 +2279,23 @@ struct PanelFooterView: View {
                                     }
                                 }
                             }) {
-                                Text(currency.symbol + " " + currency.code)
-                                    .font(.system(size: 18, weight: .bold))
-                                    .frame(width: 90, height: 50)
-                                    .background(currentCurrencyCode == currency.code ? Color.blue : Color(UIColor.systemGray5))
-                                    .foregroundStyle(currentCurrencyCode == currency.code ? .white : .primary)
-                                    .cornerRadius(8)
-                            }
-                        }
-                    }
-                }
-                .frame(width: 85, height: 170) // Fixed height to match left column
-            }
-            .padding(.top, 16) // Add top padding matching horizontal
-            } else {
-               // SINGLE-CATEGORY LAYOUT: Simpler, no subtotals
-                // Total - full width
-                let isGeneralOverridden = overriddenTotal != nil
-                let originalGeneralTotal = calculateOriginalTotal()
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Total:")
-                            .font(.system(size: 24, weight: .bold))
-                        Spacer()
-                        Text(currencySymbol(for: currentCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(isGeneralOverridden ? .green : .primary)
-                    }
-                    if isGeneralOverridden {
-                        HStack {
-                            Spacer()
-                            Text(currencySymbol(for: currentCurrencyCode) + originalGeneralTotal.formatted(.number.precision(.fractionLength(2))))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .strikethrough()
-                        }
-                    }
-                }
-                .onTapGesture {
-                    overrideTarget = .generalTotal
-                    overrideInputText = derivedTotal.formatted(.number.precision(.fractionLength(2)))
-                    showingOverrideSheet = true
-                }
-                .padding(.top, 16) // Add top padding
-                
-                // Currency buttons - horizontal scrolling
-                GeometryReader { geometry in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(event.currencies.filter { $0.isEnabled }.sorted { $0.sortOrder < $1.sortOrder }, id: \.id) { currency in
-                                let buttonCount = CGFloat(min(event.currencies.filter { $0.isEnabled }.count, 3))
-                                let totalSpacing = 10 * (buttonCount - 1)
-                                let buttonWidth = (geometry.size.width - totalSpacing) / buttonCount
-                                
-                                Button(action: {
-                                    // Capture rates BEFORE changing currentCurrencyCode
-                                    let oldRate = event.currencies.first(where: { $0.code == currentCurrencyCode })?.rate ?? 1
-                                    let newRate = event.currencies.first(where: { $0.code == currency.code })?.rate ?? 1
-                                    currentCurrencyCode = currency.code
-                                    // Convert overrides to new currency instead of clearing
-                                    if oldRate != newRate {
-                                        if let override = overriddenTotal { overriddenTotal = override / oldRate * newRate }
-                                        for key in overriddenCategoryTotals.keys {
-                                            if let val = overriddenCategoryTotals[key] { overriddenCategoryTotals[key] = val / oldRate * newRate }
-                                        }
-                                    }
-                                }) {
-                                    HStack(spacing: 4) {
-                                        Text(currency.symbol)
-                                            .font(.system(size: 18, weight: .bold))
-                                        Text(currency.code)
-                                            .font(.system(size: 18, weight: .bold))
-                                    }
-                                    .frame(width: buttonWidth, height: 40)
-                                    .background(currentCurrencyCode == currency.code ? Color.blue : Color.gray.opacity(0.2))
-                                    .foregroundStyle(currentCurrencyCode == currency.code ? .white : .primary)
-                                    .cornerRadius(12)
+                                HStack(spacing: 4) {
+                                    Text(currency.symbol)
+                                        .font(.system(size: 18, weight: .bold))
+                                    Text(currency.code)
+                                        .font(.system(size: 18, weight: .bold))
                                 }
+                                .frame(width: buttonWidth, height: 40)
+                                .background(currentCurrencyCode == currency.code ? Color.blue : Color.gray.opacity(0.2))
+                                .foregroundStyle(currentCurrencyCode == currency.code ? .white : .primary)
+                                .cornerRadius(12)
                             }
                         }
                     }
                 }
-                .frame(height: 40)
-                .padding(.top, 16) // Add top padding
             }
+            .frame(height: 40)
+            .padding(.top, 16)
             
             notesAndPromoRow
 
@@ -2443,7 +2363,7 @@ struct PanelFooterView: View {
     
     func calculateSubtotal(for category: Category) -> Decimal {
         var sum: Decimal = 0
-        let categoryProducts = products.filter { $0.category == category }
+        let categoryProducts = event.products.filter { $0.category == category }
         for prod in categoryProducts {
             if let qty = cart[prod.id], qty > 0 {
                 sum += (prod.price * Decimal(qty))
