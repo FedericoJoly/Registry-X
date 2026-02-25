@@ -971,7 +971,7 @@ struct TransactionCard: View {
         if isEditingNote || hasNote {
             Divider().padding(.horizontal, 14)
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "pencil").foregroundStyle(isEditingNote ? Color.orange : Color.secondary).font(.footnote).padding(.top, 2)
+                Image(systemName: "note.text").foregroundStyle(isEditingNote ? Color.orange : Color.primary).font(.footnote).padding(.top, 2)
                 if isEditingNote {
                     TextField("Add a note…", text: $editedNoteText, axis: .vertical)
                         .font(.subheadline).textFieldStyle(.plain).lineLimit(1...5).submitLabel(.done).onSubmit { saveNote() }

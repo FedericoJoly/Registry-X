@@ -2456,7 +2456,7 @@ struct PanelFooterView: View {
         HStack(spacing: 8) {
             // Notes field (left, flexible)
             HStack(spacing: 8) {
-                Image(systemName: "pencil")
+                Image(systemName: "note.text")
                     .foregroundStyle(Color.gray.opacity(0.5))
                     .font(.system(size: 15))
                 TextField("Notes (optional)", text: $note)
