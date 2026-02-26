@@ -548,8 +548,17 @@ struct SplitMethodRow: View {
                         let newCode = currency.code
                         if hasValue, let oldVal = parseDecimal(entry.amountText) {
                             let newVal = convert(oldVal, oldCode, newCode)
-                            let nsVal = NSDecimalNumber(decimal: newVal)
-                            entry.amountText = nsVal.stringValue
+                            // Round up to 2 decimal places (e.g. 3.456 → 3.46)
+                            let handler = NSDecimalNumberHandler(
+                                roundingMode: .up,
+                                scale: 2,
+                                raiseOnExactness: false,
+                                raiseOnOverflow: false,
+                                raiseOnUnderflow: false,
+                                raiseOnDivideByZero: false
+                            )
+                            let rounded = NSDecimalNumber(decimal: newVal).rounding(accordingToBehavior: handler)
+                            entry.amountText = rounded.stringValue
                         }
                         entry.selectedCurrencyId = currency.id
                     }) {
