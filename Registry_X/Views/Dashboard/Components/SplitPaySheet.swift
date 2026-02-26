@@ -481,71 +481,73 @@ struct SplitMethodRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Method icon — double-tap to duplicate
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: entry.method.icon)
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(entry.method.color)
-                    .cornerRadius(8)
-                    .onTapGesture(count: 2) {
-                        onDoubleTapIcon()
+        VStack(alignment: .leading, spacing: 6) {
+            // ── Row 1: icon + name (left ~50%) | amount field (right ~50%) ──
+            HStack(spacing: 10) {
+                // Left half: icon + name
+                HStack(spacing: 10) {
+                    // Method icon — double-tap to duplicate
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: entry.method.icon)
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(entry.method.color)
+                            .cornerRadius(8)
+                            .onTapGesture(count: 2) {
+                                onDoubleTapIcon()
+                            }
+                        if canDuplicate {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.blue)
+                                .background(Circle().fill(Color.white).padding(-1))
+                                .offset(x: 4, y: -4)
+                        }
                     }
 
-                // Badge if duplication is available
-                if canDuplicate {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.blue)
-                        .background(Circle().fill(Color.white).padding(-1))
-                        .offset(x: 4, y: -4)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(entry.method.name)
+                            .font(.body)
+                            .lineLimit(1)
+                        if entry.isUserAdded {
+                            Text("Swipe to remove")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Right half: amount input field
+                TextField("0.00", text: $entry.amountText)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background(Color(UIColor.systemGray6))
+                    .cornerRadius(8)
+                    .focused(focusedId, equals: entry.id)
+                    .onChange(of: entry.amountText) { _, newVal in
+                        let v = parseDecimal(newVal) ?? 0
+                        if v == 0 { entry.selectedCurrencyId = nil }
+                    }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.method.name)
-                    .font(.body)
-                    .lineLimit(1)
-                if entry.isUserAdded {
-                    Text("Swipe to remove")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .layoutPriority(-1)  // shrink before the fixed-size amount + currency widgets
-
-            Spacer()
-
-            // Amount field
-            TextField("0.00", text: $entry.amountText)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 68)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .background(Color(UIColor.systemGray6))
-                .cornerRadius(8)
-                .focused(focusedId, equals: entry.id)
-                .onChange(of: entry.amountText) { _, newVal in
-                    let v = parseDecimal(newVal) ?? 0
-                    if v == 0 { entry.selectedCurrencyId = nil }
-                }
-
-            // Currency buttons
-            HStack(spacing: 3) {
+            // ── Row 2: currency buttons, right-aligned ─────────────────────
+            HStack(spacing: 4) {
+                Spacer()
                 ForEach(availableCurrencies.filter { $0.isEnabled }, id: \.id) { currency in
                     let enabled = isCurrencyEnabled(currency) && hasValue
                     let selected = entry.selectedCurrencyId == currency.id
                     Button(action: {
                         guard enabled else { return }
-                        guard !selected else { return }   // already selected → no-op
+                        guard !selected else { return }
                         let oldCode = currentCurrencyCode()
                         let newCode = currency.code
                         if hasValue, let oldVal = parseDecimal(entry.amountText) {
                             let newVal = convert(oldVal, oldCode, newCode)
-                            // Write locale-neutral decimal string so subsequent parsing always works
                             let nsVal = NSDecimalNumber(decimal: newVal)
                             entry.amountText = nsVal.stringValue
                         }
@@ -553,7 +555,7 @@ struct SplitMethodRow: View {
                     }) {
                         Text(currency.symbol)
                             .font(.system(size: 13, weight: .bold))
-                            .frame(width: 26, height: 26)
+                            .frame(width: 32, height: 28)
                             .background(selected ? Color.blue : (enabled ? Color(UIColor.systemGray5) : Color(UIColor.systemGray5).opacity(0.3)))
                             .foregroundStyle(selected ? .white : (enabled ? .primary : Color.secondary.opacity(0.4)))
                             .cornerRadius(6)
