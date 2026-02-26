@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - Split Payment Row State
-struct SplitMethodEntry: Identifiable {
+struct SplitMethodEntry: Identifiable, Equatable {
     let id: UUID = UUID()                   // unique row id (NOT the method option id)
     let method: PaymentMethodOption
     var amountText: String = ""
@@ -31,6 +31,9 @@ struct SplitPaySheet: View {
     @State private var entries: [SplitMethodEntry] = []
     @State private var showingChargeCurrencyWarning = false
     @FocusState private var focusedRowId: UUID?
+    /// Debounced copy of displayEnteredTotal — only updates 2s after typing stops
+    @State private var debouncedEnteredTotal: Decimal = 0
+    @State private var debounceTask: Task<Void, Never>? = nil
 
     // MARK: - Caps
     private let maxTotalRows = 6
@@ -125,6 +128,18 @@ struct SplitPaySheet: View {
         entries.reduce(Decimal(0)) { $0 + amountInMainForDisplay($1) }
     }
 
+    /// Fires debounce: cancels any pending update, schedules a new one after 2 s of inactivity.
+    private func scheduleDebounce() {
+        debounceTask?.cancel()
+        debounceTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                debouncedEnteredTotal = displayEnteredTotal
+            }
+        }
+    }
+
     private var remaining: Decimal { remainingTotal - enteredTotal }
     private var isBalanced: Bool {
         let diff = enteredTotal - remainingTotal
@@ -196,51 +211,151 @@ struct SplitPaySheet: View {
         }
     }
 
+    /// Extracted to help the Swift type-checker cope with the large VStack body.
+    @ViewBuilder private var debouncedRemainingRow: some View {
+        let displayRemaining: Decimal = (remainingTotal - debouncedEnteredTotal) * displayRate
+        if debouncedEnteredTotal > 0 {
+            Text("\(symbol(for: effectiveDisplayCode))\(abs(displayRemaining).formatted(.number.precision(.fractionLength(2)))) \(displayRemaining > 0 ? "remaining" : "over")")
+                .font(.footnote)
+                .foregroundStyle(abs(displayRemaining) < 0.01 ? .green : .red)
+        }
+    }
+
+    /// Extracted header to help the Swift type-checker cope with the large body.
+    @ViewBuilder private var headerView: some View {
+        VStack(spacing: 4) {
+            if !lockedEntries.isEmpty {
+                HStack(spacing: 16) {
+                    VStack(spacing: 2) {
+                        Text("Total")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(symbol(for: effectiveDisplayCode) + (derivedTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
+                            .font(.headline.bold())
+                    }
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.secondary)
+                    VStack(spacing: 2) {
+                        Text("Remaining")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(symbol(for: effectiveDisplayCode) + (remainingTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(isBalanced ? .green : .orange)
+                    }
+                }
+            } else {
+                Text("Total")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(symbol(for: effectiveDisplayCode) + (derivedTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(isBalanced ? .green : .primary)
+            }
+            // Remaining counter — updates 2 s after typing stops
+            debouncedRemainingRow
+        }
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .background(Color(UIColor.systemGroupedBackground))
+    }
+
+    @ViewBuilder private var entriesListView: some View {
+        List {
+            // ── Locked / already-captured entries ──────────────────────────
+            if !lockedEntries.isEmpty {
+                Section {
+                    ForEach(lockedEntries) { locked in
+                        HStack(spacing: 12) {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: locked.methodIcon)
+                                    .font(.title3)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 40, height: 40)
+                                    .background(Color(hex: locked.colorHex))
+                                    .cornerRadius(8)
+                                    .opacity(0.6)
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.green)
+                                    .background(Circle().fill(.white).padding(-1))
+                                    .offset(x: 4, y: -4)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(locked.method)
+                                    .font(.body)
+                                    .foregroundStyle(.secondary)
+                                Text("Captured")
+                                    .font(.caption2)
+                                    .foregroundStyle(.green)
+                            }
+                            Spacer()
+                            let sym = availableCurrencies.first(where: { $0.code == locked.currencyCode })?.symbol ?? locked.currencyCode
+                            Text(sym + locked.chargeAmount.formatted(.number.precision(.fractionLength(2))))
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 10)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color(UIColor.systemFill).opacity(0.3))
+                    }
+                } header: {
+                    Text("Already Captured")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .textCase(nil)
+                }
+            }
+
+            // ── Editable remaining entries ───────────────────────────────
+            Section {
+                ForEach($entries) { $entry in
+                    SplitMethodRow(
+                        entry: $entry,
+                        availableCurrencies: availableCurrencies,
+                        mainCurrencyCode: mainCurrencyCode,
+                        implicitCurrencyCode: effectiveDisplayCode,
+                        canDuplicate: canDuplicate(entry),
+                        isCurrencyEnabled: { currency in
+                            if entry.method.enabledCurrencies.isEmpty { return true }
+                            if entry.method.enabledCurrencies.contains(currency.id) { return true }
+                            let matchedId = availableCurrencies.first(where: { $0.code == currency.code })?.id
+                            return matchedId.map { entry.method.enabledCurrencies.contains($0) } ?? false
+                        },
+                        convert: convert,
+                        focusedId: $focusedRowId,
+                        onDoubleTapIcon: { insertRow(after: entry) }
+                    )
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color(UIColor.systemBackground))
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        if entry.isUserAdded {
+                            Button(role: .destructive) {
+                                withAnimation {
+                                    entries.removeAll { $0.id == entry.id }
+                                }
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .background(Color(UIColor.systemBackground))
+        .cornerRadius(12)
+        .padding()
+    }
+
     // MARK: - Body
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Header: total + remaining (in displayCurrencyCode if set, else mainCurrencyCode)
-                VStack(spacing: 4) {
-                    if !lockedEntries.isEmpty {
-                        HStack(spacing: 16) {
-                            VStack(spacing: 2) {
-                                Text("Total")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(symbol(for: effectiveDisplayCode) + (derivedTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
-                                    .font(.headline.bold())
-                            }
-                            Image(systemName: "arrow.right")
-                                .foregroundStyle(.secondary)
-                            VStack(spacing: 2) {
-                                Text("Remaining")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Text(symbol(for: effectiveDisplayCode) + (remainingTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
-                                    .font(.system(size: 24, weight: .bold))
-                                    .foregroundStyle(isBalanced ? .green : .orange)
-                            }
-                        }
-                    } else {
-                        Text("Total")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Text(symbol(for: effectiveDisplayCode) + (derivedTotal * displayRate).formatted(.number.precision(.fractionLength(2))))
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(isBalanced ? .green : .primary)
-                    }
-                    // Remaining counter ticks as user types
-                    let displayRemaining: Decimal = (remainingTotal - displayEnteredTotal) * displayRate
-                    if displayEnteredTotal > 0 {
-                        Text("\(symbol(for: effectiveDisplayCode))\(abs(displayRemaining).formatted(.number.precision(.fractionLength(2)))) \(displayRemaining > 0 ? "remaining" : "over")")
-                            .font(.footnote)
-                            .foregroundStyle(abs(displayRemaining) < 0.01 ? .green : .red)
-                    }
-                }
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity)
-                .background(Color(UIColor.systemGroupedBackground))
+                headerView
 
                 Divider()
 
@@ -259,93 +374,7 @@ struct SplitPaySheet: View {
 
                 Divider()
 
-                List {
-                    // ── Locked / already-captured entries ──────────────────────
-                    if !lockedEntries.isEmpty {
-                        Section {
-                            ForEach(lockedEntries) { locked in
-                                HStack(spacing: 12) {
-                                    ZStack(alignment: .topTrailing) {
-                                        Image(systemName: locked.methodIcon)
-                                            .font(.title3)
-                                            .foregroundStyle(.white)
-                                            .frame(width: 40, height: 40)
-                                            .background(Color(hex: locked.colorHex))
-                                            .cornerRadius(8)
-                                            .opacity(0.6)
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(.green)
-                                            .background(Circle().fill(.white).padding(-1))
-                                            .offset(x: 4, y: -4)
-                                    }
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(locked.method)
-                                            .font(.body)
-                                            .foregroundStyle(.secondary)
-                                        Text("Captured")
-                                            .font(.caption2)
-                                            .foregroundStyle(.green)
-                                    }
-                                    Spacer()
-                                    let sym = availableCurrencies.first(where: { $0.code == locked.currencyCode })?.symbol ?? locked.currencyCode
-                                    Text(sym + locked.chargeAmount.formatted(.number.precision(.fractionLength(2))))
-                                        .font(.body.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 10)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color(UIColor.systemFill).opacity(0.3))
-                            }
-                        } header: {
-                            Text("Already Captured")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.green)
-                                .textCase(nil)
-                        }
-                    }
-
-                    // ── Editable remaining entries ─────────────────────────────
-                    Section {
-                        ForEach($entries) { $entry in
-                            SplitMethodRow(
-                                entry: $entry,
-                                availableCurrencies: availableCurrencies,
-                                mainCurrencyCode: mainCurrencyCode,
-                                implicitCurrencyCode: effectiveDisplayCode,
-                                canDuplicate: canDuplicate(entry),
-                                isCurrencyEnabled: { currency in
-                                    if entry.method.enabledCurrencies.isEmpty { return true }
-                                    if entry.method.enabledCurrencies.contains(currency.id) { return true }
-                                    let matchedId = availableCurrencies.first(where: { $0.code == currency.code })?.id
-                                    return matchedId.map { entry.method.enabledCurrencies.contains($0) } ?? false
-                                },
-                                convert: convert,
-                                focusedId: $focusedRowId,
-                                onDoubleTapIcon: { insertRow(after: entry) }
-                            )
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color(UIColor.systemBackground))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                if entry.isUserAdded {
-                                    Button(role: .destructive) {
-                                        withAnimation {
-                                            entries.removeAll { $0.id == entry.id }
-                                        }
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
-                .background(Color(UIColor.systemBackground))
-                .cornerRadius(12)
-                .padding()
+                entriesListView
             }
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Split Payment")
@@ -389,6 +418,16 @@ struct SplitPaySheet: View {
             // The user explicitly taps a button only if they want a different currency,
             // at which point the amount converts automatically.
             entries = availableMethods.map { SplitMethodEntry(method: $0) }
+        }
+        .onChange(of: entries) { _, newEntries in
+            // Reset debounced total instantly if all fields are empty
+            let allEmpty = newEntries.allSatisfy { $0.amountText.isEmpty }
+            if allEmpty {
+                debounceTask?.cancel()
+                debouncedEnteredTotal = 0
+            } else {
+                scheduleDebounce()
+            }
         }
     }
 }
