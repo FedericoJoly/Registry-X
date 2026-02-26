@@ -2341,6 +2341,8 @@ struct PanelFooterView: View {
             // Using nested HStacks with maxWidth:.infinity avoids the GeometryReader
             // gap-overcounting bug that left the row short of the right edge.
             let cartHasItems = cart.values.contains { $0 > 0 }
+            let hasOverride = overriddenTotal != nil || !overriddenCategoryTotals.isEmpty || customDiscountValue != nil
+            let clearEnabled = cartHasItems || hasOverride
             HStack(spacing: 8) {
                 // Left half: Clear + Split, equal widths
                 HStack(spacing: 8) {
@@ -2353,11 +2355,11 @@ struct PanelFooterView: View {
                             .font(.system(size: 16, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
-                            .background(cartHasItems ? Color.red : Color.gray)
+                            .background(clearEnabled ? Color.red : Color.gray)
                             .foregroundStyle(.white)
                             .cornerRadius(12)
                     }
-                    .disabled(!cartHasItems)
+                    .disabled(!clearEnabled)
 
                     Button {
                         isNotesFocused = false
