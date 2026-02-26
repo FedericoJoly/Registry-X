@@ -2296,7 +2296,7 @@ struct PanelFooterView: View {
                 overrideInputText = derivedTotal.formatted(.number.precision(.fractionLength(2)))
                 showingOverrideSheet = true
             }
-            .padding(.top, 16)
+            .padding(.top, 8)
             
             // Currency buttons — horizontal, fills full width
             GeometryReader { geometry in
@@ -2334,7 +2334,7 @@ struct PanelFooterView: View {
                 }
             }
             .frame(height: 40)
-            .padding(.top, 16)
+            .padding(.top, 8)
             
             notesAndPromoRow
 
@@ -2392,7 +2392,7 @@ struct PanelFooterView: View {
                 }
                 .disabled(!cartHasItems)
             }
-            .padding(.top, 16) // Increased from 6 to 16
+            .padding(.top, 8) // Reduced from 16 to recover vertical space
         }
         .padding(.horizontal, 16)
         .padding(.top, 2)
@@ -2501,7 +2501,7 @@ struct PanelFooterView: View {
                 .frame(height: 46)
             }
         }
-        .padding(.top, 10)
+        .padding(.top, 6)
         .scrollDismissesKeyboard(.interactively)
     }
 
