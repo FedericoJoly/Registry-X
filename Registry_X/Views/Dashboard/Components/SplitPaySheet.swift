@@ -60,9 +60,41 @@ struct SplitPaySheet: View {
         return (amount / rateFrom) * rate(for: toCode)
     }
 
+    /// Parse a locale-formatted decimal string robustly.
+    /// Handles both 1.000,00 (EU) and 1,000.00 (US) thousands separators.
+    private func parseDecimal(_ text: String) -> Decimal? {
+        // Count occurrences of '.' and ','
+        let dots = text.filter { $0 == "." }.count
+        let commas = text.filter { $0 == "," }.count
+        var normalized = text
+        if dots > 1 {
+            // Multiple dots → thousands separator, remove them
+            normalized = text.replacingOccurrences(of: ".", with: "")
+            normalized = normalized.replacingOccurrences(of: ",", with: ".")
+        } else if commas > 1 {
+            // Multiple commas → thousands separator, remove them
+            normalized = text.replacingOccurrences(of: ",", with: "")
+        } else if dots == 1 && commas == 1 {
+            // Both present: whichever comes last is the decimal separator
+            let dotIdx = text.lastIndex(of: ".")!
+            let commaIdx = text.lastIndex(of: ",")!
+            if commaIdx > dotIdx {
+                // EU: 1.234,56 → remove dot, replace comma
+                normalized = text.replacingOccurrences(of: ".", with: "")
+                normalized = normalized.replacingOccurrences(of: ",", with: ".")
+            } else {
+                // US: 1,234.56 → remove comma
+                normalized = text.replacingOccurrences(of: ",", with: "")
+            }
+        } else {
+            // Single separator or none — just treat comma as decimal
+            normalized = text.replacingOccurrences(of: ",", with: ".")
+        }
+        return Decimal(string: normalized)
+    }
+
     private func amountInMain(_ entry: SplitMethodEntry) -> Decimal {
-        guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
-              val > 0
+        guard let val = parseDecimal(entry.amountText), val > 0
         else { return 0 }
         // No button tapped → treat input as the charge currency (effectiveDisplayCode)
         let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code
@@ -83,8 +115,7 @@ struct SplitPaySheet: View {
     /// Like amountInMain but always returns a value — drives the live "remaining" counter
     /// so it ticks as the user types before they've tapped a currency button.
     private func amountInMainForDisplay(_ entry: SplitMethodEntry) -> Decimal {
-        guard let val = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
-              val > 0 else { return 0 }
+        guard let val = parseDecimal(entry.amountText), val > 0 else { return 0 }
         let code = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code
                    ?? effectiveDisplayCode
         let r = rate(for: code)
@@ -148,8 +179,7 @@ struct SplitPaySheet: View {
     // MARK: - Build SplitEntry array for callback
     private func buildSplitEntries() -> [SplitEntry] {
         filledEntries.compactMap { entry in
-            guard let rawVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")),
-                  rawVal > 0
+            guard let rawVal = parseDecimal(entry.amountText), rawVal > 0
             else { return nil }
             // Use the explicitly-selected currency, or fall back to the charge currency
             let currencyCode = availableCurrencies.first(where: { $0.id == entry.selectedCurrencyId })?.code
@@ -377,8 +407,33 @@ struct SplitMethodRow: View {
     var focusedId: FocusState<UUID?>.Binding
     let onDoubleTapIcon: () -> Void
 
+    /// Robust decimal parser — handles EU (1.000,00) and US (1,000.00) formats.
+    private func parseDecimal(_ text: String) -> Decimal? {
+        let dots = text.filter { $0 == "." }.count
+        let commas = text.filter { $0 == "," }.count
+        var normalized = text
+        if dots > 1 {
+            normalized = text.replacingOccurrences(of: ".", with: "")
+            normalized = normalized.replacingOccurrences(of: ",", with: ".")
+        } else if commas > 1 {
+            normalized = text.replacingOccurrences(of: ",", with: "")
+        } else if dots == 1 && commas == 1 {
+            let dotIdx = text.lastIndex(of: ".")!
+            let commaIdx = text.lastIndex(of: ",")!
+            if commaIdx > dotIdx {
+                normalized = text.replacingOccurrences(of: ".", with: "")
+                normalized = normalized.replacingOccurrences(of: ",", with: ".")
+            } else {
+                normalized = text.replacingOccurrences(of: ",", with: "")
+            }
+        } else {
+            normalized = text.replacingOccurrences(of: ",", with: ".")
+        }
+        return Decimal(string: normalized)
+    }
+
     private var hasValue: Bool {
-        (Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) > 0
+        (parseDecimal(entry.amountText) ?? 0) > 0
     }
 
     private func currentCurrencyCode() -> String {
@@ -435,7 +490,7 @@ struct SplitMethodRow: View {
                 .cornerRadius(8)
                 .focused(focusedId, equals: entry.id)
                 .onChange(of: entry.amountText) { _, newVal in
-                    let v = Decimal(string: newVal.replacingOccurrences(of: ",", with: ".")) ?? 0
+                    let v = parseDecimal(newVal) ?? 0
                     if v == 0 { entry.selectedCurrencyId = nil }
                 }
 
@@ -449,10 +504,11 @@ struct SplitMethodRow: View {
                         guard !selected else { return }   // already selected → no-op
                         let oldCode = currentCurrencyCode()
                         let newCode = currency.code
-                        if hasValue,
-                           let oldVal = Decimal(string: entry.amountText.replacingOccurrences(of: ",", with: ".")) {
+                        if hasValue, let oldVal = parseDecimal(entry.amountText) {
                             let newVal = convert(oldVal, oldCode, newCode)
-                            entry.amountText = newVal.formatted(.number.precision(.fractionLength(2)))
+                            // Write locale-neutral decimal string so subsequent parsing always works
+                            let nsVal = NSDecimalNumber(decimal: newVal)
+                            entry.amountText = nsVal.stringValue
                         }
                         entry.selectedCurrencyId = currency.id
                     }) {

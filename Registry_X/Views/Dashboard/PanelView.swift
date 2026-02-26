@@ -2273,9 +2273,12 @@ struct PanelFooterView: View {
                 HStack {
                     Text("Total:")
                         .font(.system(size: 24, weight: .bold))
+                        .fixedSize()
                     Spacer()
                     Text(currencySymbol(for: currentCurrencyCode) + derivedTotal.formatted(.number.precision(.fractionLength(2))))
                         .font(.system(size: 24, weight: .bold))
+                        .minimumScaleFactor(0.4)
+                        .lineLimit(1)
                         .foregroundStyle(isGeneralOverridden ? .green : .primary)
                 }
                 if isGeneralOverridden {
