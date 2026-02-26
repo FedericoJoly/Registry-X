@@ -761,7 +761,7 @@ struct PanelView: View {
         let visibleProducts = event.products.filter { $0.isActive && !$0.isDeleted }
         if activeCategories.isEmpty {
             // No enabled categories - show all products (no color inheritance)
-            return AnyView(ProductListView(
+            ProductListView(
                 category: nil,
                 products: visibleProducts.sorted { $0.sortOrder < $1.sortOrder },
                 cart: $cart,
@@ -769,37 +769,35 @@ struct PanelView: View {
                 currencyCode: currentCurrencyCode,
                 event: event,
                 defaultBackgroundColor: event.defaultProductBackgroundColor
-            ))
+            )
         } else if !event.areCategoriesEnabled {
             // Single mode - pass category so color inheritance works
             let category = activeCategories[0]
-            return AnyView(ProductListView(
+            ProductListView(
                 category: category,
                 products: visibleProducts.filter { $0.category == category }.sorted { $0.sortOrder < $1.sortOrder },
                 cart: $cart,
                 rate: rate,
                 currencyCode: currentCurrencyCode,
                 event: event
-            ))
+            )
         } else {
             // Multi mode - horizontal swipeable tabs, each with category color
-            return AnyView(
-                TabView(selection: $selectedTab) {
-                    ForEach(Array(activeCategories.enumerated()), id: \.element.id) { index, category in
-                        ProductListView(
-                            category: category,
-                            products: visibleProducts.filter { $0.category == category }.sorted { $0.sortOrder < $1.sortOrder },
-                            cart: $cart,
-                            rate: rate,
-                            currencyCode: currentCurrencyCode,
-                            event: event
-                        )
-                        .tag(index)
-                    }
+            TabView(selection: $selectedTab) {
+                ForEach(Array(activeCategories.enumerated()), id: \.element.id) { index, category in
+                    ProductListView(
+                        category: category,
+                        products: visibleProducts.filter { $0.category == category }.sorted { $0.sortOrder < $1.sortOrder },
+                        cart: $cart,
+                        rate: rate,
+                        currencyCode: currentCurrencyCode,
+                        event: event
+                    )
+                    .tag(index)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(.easeInOut, value: selectedTab)
-            )
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .animation(.easeInOut, value: selectedTab)
         }
     }
     
