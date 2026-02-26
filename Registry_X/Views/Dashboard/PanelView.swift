@@ -2557,6 +2557,8 @@ struct ProductListView: View {
 
                                 Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 16))
+                                    .minimumScaleFactor(0.5)
+                                    .lineLimit(1)
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
 
@@ -2567,6 +2569,8 @@ struct ProductListView: View {
 
                                 Text(currencySymbol(for: currencyCode) + rowTotal.formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 16, weight: .bold))
+                                    .minimumScaleFactor(0.5)
+                                    .lineLimit(1)
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
 
