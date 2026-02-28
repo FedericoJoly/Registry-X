@@ -257,40 +257,63 @@ private struct QRRescanSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Text("Scan to Pay")
-                    .font(.title2.bold())
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("Scan to Pay")
+                        .font(.title2.bold())
 
-                Text(formattedAmount)
-                    .font(.title.bold())
+                    Text(formattedAmount)
+                        .font(.title.bold())
 
-                if let qrImage {
-                    Image(uiImage: qrImage)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 260, height: 260)
-                        .padding()
-                        .background(Color.white)
-                        .cornerRadius(16)
-                        .shadow(radius: 10)
-                } else {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                }
-
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .tint(.purple)
-                    Text("Checking payment status…")
-                        .font(.caption)
+                    Text(job.description)
+                        .font(.body)
                         .foregroundStyle(.secondary)
-                }
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
 
-                Spacer()
+                    if let qrImage {
+                        Image(uiImage: qrImage)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 250, height: 250)
+                            .padding()
+                            .background(Color.white)
+                            .cornerRadius(16)
+                            .shadow(radius: 10)
+                    } else {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .frame(width: 250, height: 250)
+                    }
+
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .tint(.purple)
+                        Text("Checking payment status…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+                        .padding(.vertical)
+
+                    // Instructions — same as original QR screen
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Instructions")
+                            .font(.headline)
+                        instructionRow(number: "1", text: "Scan the QR code above")
+                        instructionRow(number: "2", text: "Complete payment on your device")
+                        instructionRow(number: "3", text: "App will detect completion automatically")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .cornerRadius(12)
+                }
+                .padding()
             }
-            .padding()
             .navigationTitle("Pending QR Payment")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -300,6 +323,19 @@ private struct QRRescanSheet: View {
             }
         }
     }
+
+    private func instructionRow(number: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number)
+                .font(.body.bold())
+                .foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.blue))
+            Text(text)
+                .font(.body)
+        }
+    }
+
 
     private var formattedAmount: String {
         let formatter = NumberFormatter()

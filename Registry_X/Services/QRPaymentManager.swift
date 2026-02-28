@@ -19,6 +19,7 @@ class MinimizedQRJob: Identifiable, ObservableObject {
     let id: UUID
     let amount: Decimal
     let currency: String
+    let description: String
     let txnRef: String
     let backendURL: String
 
@@ -35,6 +36,7 @@ class MinimizedQRJob: Identifiable, ObservableObject {
         id: UUID = UUID(),
         amount: Decimal,
         currency: String,
+        description: String,
         txnRef: String,
         backendURL: String,
         checkoutURL: String,
@@ -44,6 +46,7 @@ class MinimizedQRJob: Identifiable, ObservableObject {
         self.id = id
         self.amount = amount
         self.currency = currency
+        self.description = description
         self.txnRef = txnRef
         self.backendURL = backendURL
         self.checkoutURL = checkoutURL
@@ -90,6 +93,7 @@ final class QRPaymentManager: ObservableObject {
     func minimize(
         amount: Decimal,
         currency: String,
+        description: String,
         txnRef: String,
         backendURL: String,
         pollingTask: Task<Void, Never>,
@@ -102,6 +106,7 @@ final class QRPaymentManager: ObservableObject {
         let job = MinimizedQRJob(
             amount: amount,
             currency: currency,
+            description: description,
             txnRef: txnRef,
             backendURL: backendURL,
             checkoutURL: checkoutURL,

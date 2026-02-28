@@ -1112,6 +1112,7 @@ struct PanelView: View {
                 qrManager.minimize(
                     amount: snapshotTotal,
                     currency: snapshotCurrency,
+                    description: job.description,
                     txnRef: job.txnRef,
                     backendURL: job.backendURL,
                     pollingTask: pollingTask,
