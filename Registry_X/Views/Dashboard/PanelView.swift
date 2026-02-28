@@ -1108,7 +1108,7 @@ struct PanelView: View {
 
             // Minimize is only available outside a split context and when the tray is not full.
             let isSplitContext = pendingSplitStripeCallback != nil
-            let minimizeHandler: ((String, Task<Void, Never>) -> Void)? = (!isSplitContext && !qrManager.atLimit) ? { sessionId, pollingTask in
+            let minimizeHandler: ((String, String, Task<Void, Never>) -> Void)? = (!isSplitContext && !qrManager.atLimit) ? { sessionId, checkoutURL, pollingTask in
                 qrManager.minimize(
                     amount: snapshotTotal,
                     currency: snapshotCurrency,
@@ -1116,14 +1116,12 @@ struct PanelView: View {
                     backendURL: job.backendURL,
                     pollingTask: pollingTask,
                     sessionId: sessionId,
+                    checkoutURL: checkoutURL,
                     onSuccess: { confirmedSessionId in
                         // Register using the snapshotted state
-                        // Temporarily restore snapshot state so processCheckoutWithStripe reads correct data
                         self.selectedPaymentMethod = snapshotPaymentMethod
                         self.selectedMethodOption = snapshotMethodOption
                         self.pendingReceiptEmail = snapshotPendingReceiptEmail
-                        // processCheckoutWithStripe reads derivedTotal / currentCurrencyCode / cart / note.
-                        // Since those may have changed, we call a dedicated snapshot-based registration helper.
                         self.processCheckoutWithStripeSnapshot(
                             cart: snapshotCart,
                             total: snapshotTotal,
@@ -1138,7 +1136,15 @@ struct PanelView: View {
                     }
                 )
                 activeQRJob = nil
+                // Clear the panel so the merchant can start a new transaction immediately
+                cart.removeAll()
+                note = ""
+                activeDiscountPromoIds.removeAll()
+                customDiscountValue = nil
+                overriddenTotal = nil
+                overriddenCategoryTotals.removeAll()
             } : nil
+
 
             StripeQRPaymentView(
                 amount: job.amount,

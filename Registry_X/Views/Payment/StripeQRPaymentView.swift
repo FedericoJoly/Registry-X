@@ -11,9 +11,9 @@ struct StripeQRPaymentView: View {
     let onSuccess: (String) -> Void // Session ID
     let onCancel: () -> Void
     /// When non-nil, a Minimize button is shown instead of Cancel.
-    /// The closure receives (sessionId, pollingTask) so the caller can hand them
+    /// The closure receives (sessionId, checkoutURL, pollingTask) so the caller can hand them
     /// to QRPaymentManager without cancelling the background task.
-    var onMinimize: ((String, Task<Void, Never>) -> Void)? = nil
+    var onMinimize: ((String, String, Task<Void, Never>) -> Void)? = nil
 
     @State private var qrCodeImage: UIImage?
     @State private var checkoutURL: String?
@@ -129,10 +129,10 @@ struct StripeQRPaymentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    if let onMinimize, let sessionId, let pollingTask {
+                    if let onMinimize, let sessionId, let checkoutURL, let pollingTask {
                         // Minimize: dismiss sheet but keep polling alive
                         Button {
-                            onMinimize(sessionId, pollingTask)
+                            onMinimize(sessionId, checkoutURL, pollingTask)
                             dismiss()
                         } label: {
                             HStack(spacing: 4) {

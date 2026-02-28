@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreImage.CIFilterBuiltins
 
 /// Floating tray that shows minimized pending QR payment sessions.
 /// Anchored to the bottom-trailing corner of EventDashboardView (above the tab bar).
@@ -22,7 +23,7 @@ struct MinimizedQRTrayView: View {
                 .padding(.bottom, 6)
             }
 
-            // Pill toggle button
+            // Pill toggle button — purple to match QR style
             if !manager.minimizedJobs.isEmpty {
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
@@ -52,7 +53,7 @@ struct MinimizedQRTrayView: View {
                     .padding(.vertical, 8)
                     .background(
                         Capsule()
-                            .fill(Color.blue.opacity(0.92))
+                            .fill(Color.purple.opacity(0.92))
                             .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 4)
                     )
                 }
@@ -79,6 +80,7 @@ private struct MinimizedQRJobCard: View {
     var manager: QRPaymentManager
 
     @State private var isFlashing = false
+    @State private var showingQRSheet = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -104,9 +106,7 @@ private struct MinimizedQRJobCard: View {
         .frame(width: 240)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    .regularMaterial
-                )
+                .fill(.regularMaterial)
                 .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
         )
         .overlay(
@@ -114,15 +114,20 @@ private struct MinimizedQRJobCard: View {
                 .strokeBorder(borderColor.opacity(0.4), lineWidth: 1)
         )
         .scaleEffect(isFlashing ? 1.03 : 1.0)
-        .onAppear {
-            if case .succeeded = job.status {
-                flashAnimation()
+        // Tap the card to re-show the QR (only useful while still polling)
+        .onTapGesture {
+            if case .polling = job.status {
+                showingQRSheet = true
             }
         }
+        .sheet(isPresented: $showingQRSheet) {
+            QRRescanSheet(job: job)
+        }
+        .onAppear {
+            if case .succeeded = job.status { flashAnimation() }
+        }
         .onChange(of: job.status) { _, newStatus in
-            if case .succeeded = newStatus {
-                flashAnimation()
-            }
+            if case .succeeded = newStatus { flashAnimation() }
         }
     }
 
@@ -134,7 +139,7 @@ private struct MinimizedQRJobCard: View {
             case .polling:
                 ProgressView()
                     .scaleEffect(0.75)
-                    .tint(.blue)
+                    .tint(.purple)
             case .succeeded:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 20))
@@ -205,7 +210,7 @@ private struct MinimizedQRJobCard: View {
 
     private var statusLabel: String {
         switch job.status {
-        case .polling: return "Waiting for payment…"
+        case .polling: return "Tap to show QR · Waiting for payment…"
         case .succeeded: return "Payment received!"
         case .failed: return "Payment failed / expired"
         }
@@ -221,7 +226,7 @@ private struct MinimizedQRJobCard: View {
 
     private var borderColor: Color {
         switch job.status {
-        case .polling: return .blue
+        case .polling: return .purple
         case .succeeded: return .green
         case .failed: return .red
         }
@@ -236,5 +241,85 @@ private struct MinimizedQRJobCard: View {
                 isFlashing = false
             }
         }
+    }
+}
+
+// MARK: - QR Re-scan Sheet
+
+/// Shows the QR code again so the customer can re-scan without needing the original sheet.
+private struct QRRescanSheet: View {
+    @ObservedObject var job: MinimizedQRJob
+    @Environment(\.dismiss) private var dismiss
+
+    private var qrImage: UIImage? {
+        generateQRCode(from: job.checkoutURL)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Text("Scan to Pay")
+                    .font(.title2.bold())
+
+                Text(formattedAmount)
+                    .font(.title.bold())
+
+                if let qrImage {
+                    Image(uiImage: qrImage)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 260, height: 260)
+                        .padding()
+                        .background(Color.white)
+                        .cornerRadius(16)
+                        .shadow(radius: 10)
+                } else {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                }
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .tint(.purple)
+                    Text("Checking payment status…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Pending QR Payment")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var formattedAmount: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        let amount = (formatter.string(from: job.amount as NSNumber) ?? "\(job.amount)")
+        return "\(amount) \(job.currency.uppercased())"
+    }
+
+    private func generateQRCode(from string: String) -> UIImage? {
+        let context = CIContext()
+        let filter = CIFilter.qrCodeGenerator()
+        guard let data = string.data(using: .utf8) else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("H", forKey: "inputCorrectionLevel")
+        guard let ciImage = filter.outputImage else { return nil }
+        let transform = CGAffineTransform(scaleX: 10, y: 10)
+        let scaled = ciImage.transformed(by: transform)
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }

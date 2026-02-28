@@ -24,6 +24,8 @@ class MinimizedQRJob: Identifiable, ObservableObject {
 
     @Published var status: QRSessionStatus = .polling
 
+    /// The Stripe Checkout URL — used to re-generate the QR if the customer needs to re-scan.
+    let checkoutURL: String
     /// Called when Stripe confirms success — registers the transaction.
     var onSuccess: ((String) -> Void)?
     /// Background polling task — NOT cancelled on minimize.
@@ -35,6 +37,7 @@ class MinimizedQRJob: Identifiable, ObservableObject {
         currency: String,
         txnRef: String,
         backendURL: String,
+        checkoutURL: String,
         pollingTask: Task<Void, Never>?,
         onSuccess: ((String) -> Void)?
     ) {
@@ -43,6 +46,7 @@ class MinimizedQRJob: Identifiable, ObservableObject {
         self.currency = currency
         self.txnRef = txnRef
         self.backendURL = backendURL
+        self.checkoutURL = checkoutURL
         self.pollingTask = pollingTask
         self.onSuccess = onSuccess
     }
@@ -81,6 +85,7 @@ final class QRPaymentManager: ObservableObject {
     ///   - backendURL: Stripe backend URL for status polling
     ///   - pollingTask: The background polling Task (must NOT be cancelled before passing here)
     ///   - sessionId: The Stripe checkout session ID (already obtained when showing QR)
+    ///   - checkoutURL: The Stripe Checkout URL for QR re-generation if customer needs to re-scan
     ///   - onSuccess: Closure to register the transaction when Stripe confirms payment
     func minimize(
         amount: Decimal,
@@ -89,6 +94,7 @@ final class QRPaymentManager: ObservableObject {
         backendURL: String,
         pollingTask: Task<Void, Never>,
         sessionId: String,
+        checkoutURL: String,
         onSuccess: @escaping (String) -> Void
     ) {
         guard canMinimize else { return }
@@ -98,9 +104,11 @@ final class QRPaymentManager: ObservableObject {
             currency: currency,
             txnRef: txnRef,
             backendURL: backendURL,
+            checkoutURL: checkoutURL,
             pollingTask: pollingTask,
             onSuccess: onSuccess
         )
+
 
         minimizedJobs.append(job)
 
