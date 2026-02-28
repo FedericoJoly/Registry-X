@@ -81,6 +81,7 @@ private struct MinimizedQRJobCard: View {
 
     @State private var isFlashing = false
     @State private var showingQRSheet = false
+    @State private var showingDiscardAlert = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -123,6 +124,14 @@ private struct MinimizedQRJobCard: View {
         .sheet(isPresented: $showingQRSheet) {
             QRRescanSheet(job: job)
         }
+        .alert("Discard QR Payment?", isPresented: $showingDiscardAlert) {
+            Button("Discard", role: .destructive) {
+                withAnimation { manager.remove(jobId: job.id) }
+            }
+            Button("Keep", role: .cancel) { }
+        } message: {
+            Text("Sure you want to discard this pending QR payment? The customer won't be able to complete it.")
+        }
         .onAppear {
             if case .succeeded = job.status { flashAnimation() }
         }
@@ -157,10 +166,8 @@ private struct MinimizedQRJobCard: View {
     private var actionButton: some View {
         switch job.status {
         case .polling:
-            Button(role: .destructive) {
-                withAnimation {
-                    manager.remove(jobId: job.id)
-                }
+            Button {
+                showingDiscardAlert = true
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .bold))
