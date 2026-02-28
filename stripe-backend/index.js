@@ -225,11 +225,16 @@ app.get('/checkout-session/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+    // customer_details.email is the email the customer submitted during checkout
+    // (works for card form fill AND Apple Pay / Google Pay).
+    // customer_email is only a pre-fill hint — always null if we don't pass it at creation.
+    const customerEmail = session.customer_details?.email || session.customer_email || null;
+
     res.json({
       status: session.payment_status, // 'paid', 'unpaid', 'no_payment_required'
       amount: session.amount_total,
       currency: session.currency,
-      customer_email: session.customer_email || null // Email entered by customer at checkout
+      customer_email: customerEmail
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
