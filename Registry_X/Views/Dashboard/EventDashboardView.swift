@@ -14,7 +14,10 @@ enum DashboardTab: String, Identifiable {
 struct EventDashboardView: View {
     @Bindable var event: Event
     @Environment(\.dismiss) var dismiss // For quit button
-    
+
+    // QR Minimize tray — persists across tab switches
+    @StateObject private var qrManager = QRPaymentManager()
+
     // Tab State
     @State private var selectedTab: DashboardTab = .setup
     @State private var pendingTab: DashboardTab? // Where the user wanted to go
@@ -75,6 +78,21 @@ struct EventDashboardView: View {
                     .tag(DashboardTab.totals)
             }
             .background(Color.blue)
+            .environmentObject(qrManager)
+
+            // Floating minimized QR tray — lives above tabs, persists across tab navigation
+            if !qrManager.minimizedJobs.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        MinimizedQRTrayView(manager: qrManager)
+                    }
+                }
+                .ignoresSafeArea(edges: .bottom)
+                // Sit above tab bar content but below alerts/sheets
+                .zIndex(10)
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)

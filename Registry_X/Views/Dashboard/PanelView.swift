@@ -54,6 +54,7 @@ struct PanelView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(AuthService.self) private var authService
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var qrManager: QRPaymentManager
     
     // POS State
     @State private var cart: [UUID: Int] = [:] // ProductID : Quantity
@@ -1027,7 +1028,8 @@ struct PanelView: View {
                 },
                 onCancel: {
                     showingPaymentMethodSheet = false
-                }
+                },
+                qrAtLimit: qrManager.atLimit
             )
             .presentationDetents([
                 .height(min(CGFloat(200 + (availablePaymentMethods.count * 80)), 600))
@@ -1091,6 +1093,53 @@ struct PanelView: View {
                 splitCancel()
             }
         }) { job in
+            // Snapshot the current panel state NOW (when the sheet opens/the job is presented).
+            // This closure is captured by value so registration uses the correct data even
+            // after the cart has been cleared for a subsequent transaction.
+            let snapshotCart = cart
+            let snapshotTotal = derivedTotal
+            let snapshotCurrency = currentCurrencyCode
+            let snapshotNote = note
+            let snapshotPaymentMethod = selectedPaymentMethod
+            let snapshotMethodOption = selectedMethodOption
+            let snapshotPendingReceiptEmail = pendingReceiptEmail
+            let snapshotOverriddenTotal = overriddenTotal
+            let snapshotOverriddenCategoryTotals = overriddenCategoryTotals
+
+            // Minimize is only available outside a split context and when the tray is not full.
+            let isSplitContext = pendingSplitStripeCallback != nil
+            let minimizeHandler: ((String, Task<Void, Never>) -> Void)? = (!isSplitContext && !qrManager.atLimit) ? { sessionId, pollingTask in
+                qrManager.minimize(
+                    amount: snapshotTotal,
+                    currency: snapshotCurrency,
+                    txnRef: job.txnRef,
+                    backendURL: job.backendURL,
+                    pollingTask: pollingTask,
+                    sessionId: sessionId,
+                    onSuccess: { confirmedSessionId in
+                        // Register using the snapshotted state
+                        // Temporarily restore snapshot state so processCheckoutWithStripe reads correct data
+                        self.selectedPaymentMethod = snapshotPaymentMethod
+                        self.selectedMethodOption = snapshotMethodOption
+                        self.pendingReceiptEmail = snapshotPendingReceiptEmail
+                        // processCheckoutWithStripe reads derivedTotal / currentCurrencyCode / cart / note.
+                        // Since those may have changed, we call a dedicated snapshot-based registration helper.
+                        self.processCheckoutWithStripeSnapshot(
+                            cart: snapshotCart,
+                            total: snapshotTotal,
+                            currencyCode: snapshotCurrency,
+                            note: snapshotNote,
+                            overriddenTotal: snapshotOverriddenTotal,
+                            overriddenCategoryTotals: snapshotOverriddenCategoryTotals,
+                            paymentIntentId: nil,
+                            sessionId: confirmedSessionId,
+                            txnRef: job.txnRef
+                        )
+                    }
+                )
+                activeQRJob = nil
+            } : nil
+
             StripeQRPaymentView(
                 amount: job.amount,
                 currency: job.currency,
@@ -1109,7 +1158,8 @@ struct PanelView: View {
                 },
                 onCancel: {
                     activeQRJob = nil
-                }
+                },
+                onMinimize: minimizeHandler
             )
         }
         .sheet(isPresented: $showingBizumPayment) {
@@ -1637,6 +1687,108 @@ struct PanelView: View {
             showingTransactionNotification = true
         }
         // Auto-dismiss after 2 seconds
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                withAnimation {
+                    showingTransactionNotification = false
+                }
+            }
+        }
+    }
+    
+    /// Registers a Stripe QR transaction using a point-in-time snapshot of the panel state.
+    /// Used when a minimized QR payment resolves after the cart has already been updated
+    /// for a subsequent transaction. All parameters are the values captured at minimize-time.
+    func processCheckoutWithStripeSnapshot(
+        cart snapshotCart: [UUID: Int],
+        total snapshotTotal: Decimal,
+        currencyCode snapshotCurrency: String,
+        note snapshotNote: String,
+        overriddenTotal snapshotOverriddenTotal: Decimal?,
+        overriddenCategoryTotals snapshotOverriddenCategoryTotals: [UUID: Decimal],
+        paymentIntentId: String?,
+        sessionId: String?,
+        txnRef: String
+    ) {
+        guard !event.isLocked else { return }
+        guard snapshotCart.values.contains(where: { $0 > 0 }) else { return }
+
+        let status = paymentIntentId != nil || sessionId != nil ? "succeeded" : "manual"
+
+        let transaction = Transaction(
+            totalAmount: snapshotTotal,
+            currencyCode: snapshotCurrency,
+            note: snapshotNote.isEmpty ? nil : snapshotNote,
+            paymentMethod: selectedPaymentMethod,
+            paymentMethodIcon: selectedMethodOption?.icon,
+            transactionRef: txnRef,
+            stripePaymentIntentId: paymentIntentId,
+            stripeSessionId: sessionId,
+            paymentStatus: status,
+            receiptEmail: pendingReceiptEmail
+        )
+
+        // Build line items from the snapshot cart
+        for (id, qty) in snapshotCart {
+            if qty > 0, let product = event.products.first(where: { $0.id == id }) {
+                let convertedPrice = product.price * rate
+                // Simple prorating for overrides
+                let basePrice: Decimal
+                if let overridden = snapshotOverriddenTotal {
+                    let originalTotal = snapshotCart.reduce(Decimal(0)) { acc, kv in
+                        if kv.value > 0, let p = event.products.first(where: { $0.id == kv.key }) {
+                            return acc + (p.price * rate) * Decimal(kv.value)
+                        }
+                        return acc
+                    }
+                    let productOriginalSubtotal = convertedPrice * Decimal(qty)
+                    let percentage = originalTotal > 0 ? productOriginalSubtotal / originalTotal : Decimal(0)
+                    basePrice = originalTotal > 0 ? (overridden * percentage) / Decimal(qty) : convertedPrice
+                } else if let catId = product.category?.id,
+                          let overriddenCat = snapshotOverriddenCategoryTotals[catId] {
+                    let originalCatTotal = snapshotCart.reduce(Decimal(0)) { acc, kv in
+                        if kv.value > 0,
+                           let p = event.products.first(where: { $0.id == kv.key }),
+                           p.category?.id == catId {
+                            return acc + (p.price * rate) * Decimal(kv.value)
+                        }
+                        return acc
+                    }
+                    let productOriginalSubtotal = convertedPrice * Decimal(qty)
+                    let percentage = originalCatTotal > 0 ? productOriginalSubtotal / originalCatTotal : Decimal(0)
+                    basePrice = originalCatTotal > 0 ? (overriddenCat * percentage) / Decimal(qty) : convertedPrice
+                } else {
+                    basePrice = convertedPrice
+                }
+
+                let line = LineItem(
+                    productName: product.name,
+                    quantity: qty,
+                    unitPrice: basePrice,
+                    subgroup: product.subgroup
+                )
+                line.product = product
+                transaction.lineItems.append(line)
+            }
+        }
+        balanceLineItems(for: transaction)
+
+        event.transactions.append(transaction)
+
+        // Deduct stock if enabled
+        if event.isStockControlEnabled {
+            for lineItem in transaction.lineItems {
+                if let product = lineItem.product, product.stockQty != nil {
+                    product.stockQty = max(0, (product.stockQty ?? 0) - lineItem.quantity)
+                }
+            }
+        }
+
+        // Show notification banner
+        withAnimation {
+            showingTransactionNotification = true
+        }
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await MainActor.run {

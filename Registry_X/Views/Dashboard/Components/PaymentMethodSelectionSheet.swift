@@ -7,6 +7,7 @@ struct PaymentMethodSelectionSheet: View {
     let derivedTotal: Decimal
     let onSelect: (PaymentMethodOption) -> Void
     let onCancel: () -> Void
+    var qrAtLimit: Bool = false
     
     private func currencySymbol(for code: String) -> String {
         let locale = Locale.availableIdentifiers
@@ -39,8 +40,16 @@ struct PaymentMethodSelectionSheet: View {
                     ScrollView {
                         VStack(spacing: 12) {
                             ForEach(availableMethods) { method in
-                                PaymentMethodButton(method: method) {
-                                    onSelect(method)
+                                let isQRMethod = method.icon.contains("qrcode") && method.enabledProviders.contains("stripe")
+                                let isDisabled = isQRMethod && qrAtLimit
+                                PaymentMethodButton(
+                                    method: method,
+                                    isDisabled: isDisabled,
+                                    disabledCaption: isDisabled ? "Complete the current pending QR transactions first" : nil
+                                ) {
+                                    if !isDisabled {
+                                        onSelect(method)
+                                    }
                                 }
                             }
                         }
@@ -59,8 +68,10 @@ struct PaymentMethodSelectionSheet: View {
 
 struct PaymentMethodButton: View {
     let method: PaymentMethodOption
+    var isDisabled: Bool = false
+    var disabledCaption: String? = nil
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
@@ -68,23 +79,34 @@ struct PaymentMethodButton: View {
                     .font(.title2)
                     .foregroundStyle(.white)
                     .frame(width: 50, height: 50)
-                    .background(method.color)
+                    .background(isDisabled ? Color(UIColor.systemGray3) : method.color)
                     .cornerRadius(10)
-                
-                Text(method.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(method.name)
+                        .font(.headline)
+                        .foregroundStyle(isDisabled ? .secondary : .primary)
+
+                    if let caption = disabledCaption {
+                        Text(caption)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+
                 Spacer()
-                
+
                 Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isDisabled ? Color(UIColor.systemGray3) : .secondary)
             }
             .padding()
             .background(Color(UIColor.systemGray6))
             .cornerRadius(12)
+            .opacity(isDisabled ? 0.7 : 1.0)
         }
         .buttonStyle(.plain)
+        .disabled(isDisabled)
     }
 }
 
