@@ -28,7 +28,8 @@ class MinimizedQRJob: Identifiable, ObservableObject {
     /// The Stripe Checkout URL — used to re-generate the QR if the customer needs to re-scan.
     let checkoutURL: String
     /// Called when Stripe confirms success — registers the transaction.
-    var onSuccess: ((String) -> Void)?
+    /// Receives (sessionId, customerEmail?) so the caller can set receiptEmail.
+    var onSuccess: ((String, String?) -> Void)?
     /// Background polling task — NOT cancelled on minimize.
     private(set) var pollingTask: Task<Void, Never>?
 
@@ -41,7 +42,7 @@ class MinimizedQRJob: Identifiable, ObservableObject {
         backendURL: String,
         checkoutURL: String,
         pollingTask: Task<Void, Never>?,
-        onSuccess: ((String) -> Void)?
+        onSuccess: ((String, String?) -> Void)?
     ) {
         self.id = id
         self.amount = amount
@@ -99,7 +100,7 @@ final class QRPaymentManager: ObservableObject {
         pollingTask: Task<Void, Never>,
         sessionId: String,
         checkoutURL: String,
-        onSuccess: @escaping (String) -> Void
+        onSuccess: @escaping (String, String?) -> Void
     ) {
         guard canMinimize else { return }
 
@@ -148,6 +149,7 @@ final class QRPaymentManager: ObservableObject {
 
                 if let paymentStatus = statusDict["status"] as? String,
                    paymentStatus == "paid" || paymentStatus == "complete" {
+                    let customerEmail = statusDict["customer_email"] as? String
                     await MainActor.run {
                         guard let job = self.minimizedJobs.first(where: { $0.id == jobId }) else { return }
                         if case .polling = job.status {
@@ -156,7 +158,7 @@ final class QRPaymentManager: ObservableObject {
                             Task {
                                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                                 await MainActor.run {
-                                    self.triggerSuccess(jobId: jobId, sessionId: sessionId)
+                                    self.triggerSuccess(jobId: jobId, sessionId: sessionId, customerEmail: customerEmail)
                                 }
                             }
                         }
@@ -180,9 +182,9 @@ final class QRPaymentManager: ObservableObject {
     // MARK: - Actions
 
     /// Triggers the success callback and removes the job from the tray.
-    func triggerSuccess(jobId: UUID, sessionId: String) {
+    func triggerSuccess(jobId: UUID, sessionId: String, customerEmail: String? = nil) {
         guard let job = minimizedJobs.first(where: { $0.id == jobId }) else { return }
-        job.onSuccess?(sessionId)
+        job.onSuccess?(sessionId, customerEmail)
         remove(jobId: jobId)
     }
 

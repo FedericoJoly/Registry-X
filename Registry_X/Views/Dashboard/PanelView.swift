@@ -1118,11 +1118,12 @@ struct PanelView: View {
                     pollingTask: pollingTask,
                     sessionId: sessionId,
                     checkoutURL: checkoutURL,
-                    onSuccess: { confirmedSessionId in
+                    onSuccess: { confirmedSessionId, customerEmail in
                         // Register using the snapshotted state
                         self.selectedPaymentMethod = snapshotPaymentMethod
                         self.selectedMethodOption = snapshotMethodOption
-                        self.pendingReceiptEmail = snapshotPendingReceiptEmail
+                        // Prefer the Stripe-provided customer email over any manually entered one
+                        self.pendingReceiptEmail = customerEmail ?? snapshotPendingReceiptEmail
                         self.processCheckoutWithStripeSnapshot(
                             cart: snapshotCart,
                             total: snapshotTotal,
@@ -1154,11 +1155,13 @@ struct PanelView: View {
                 companyName: effectiveCompanyName,
                 lineItems: (splitChargeAmount > 0) ? nil : (stripeLineItems().isEmpty ? nil : stripeLineItems()),
                 backendURL: job.backendURL,
-                onSuccess: { sessionId in
+                onSuccess: { sessionId, customerEmail in
                     pendingSplitCardCancelCallback = nil
                     if pendingSplitStripeCallback != nil {
                         pendingNextSplitEntryResult = SplitStripeCallbackResult(intentId: nil, sessionId: sessionId, cardLast4: nil)
                     } else {
+                        // Use the Stripe-provided customer email as receipt email for QR payments
+                        if let email = customerEmail { pendingReceiptEmail = email }
                         processCheckoutWithStripe(paymentIntentId: nil, sessionId: sessionId, txnRef: job.txnRef)
                     }
                     activeQRJob = nil

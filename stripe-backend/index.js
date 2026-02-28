@@ -228,7 +228,8 @@ app.get('/checkout-session/:sessionId', async (req, res) => {
     res.json({
       status: session.payment_status, // 'paid', 'unpaid', 'no_payment_required'
       amount: session.amount_total,
-      currency: session.currency
+      currency: session.currency,
+      customer_email: session.customer_email || null // Email entered by customer at checkout
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

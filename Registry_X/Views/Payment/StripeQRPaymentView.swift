@@ -8,7 +8,7 @@ struct StripeQRPaymentView: View {
     let companyName: String?
     let lineItems: [[String: Any]]?
     let backendURL: String
-    let onSuccess: (String) -> Void // Session ID
+    let onSuccess: (String, String?) -> Void // (sessionId, customerEmail?)
     let onCancel: () -> Void
     /// When non-nil, a Minimize button is shown instead of Cancel.
     /// The closure receives (sessionId, checkoutURL, pollingTask) so the caller can hand them
@@ -249,8 +249,9 @@ struct StripeQRPaymentView: View {
 
                 if let paymentStatus = statusDict["status"] as? String,
                    paymentStatus == "paid" || paymentStatus == "complete" {
+                    let customerEmail = statusDict["customer_email"] as? String
                     await MainActor.run {
-                        onSuccess(sessionId)
+                        onSuccess(sessionId, customerEmail)
                         dismiss()
                     }
                     return
