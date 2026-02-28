@@ -223,20 +223,33 @@ app.get('/payment-intent/:id', async (req, res) => {
 app.get('/checkout-session/:sessionId', async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    // Expand payment_intent so we can read receipt_email as a reliable fallback
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent']
+    });
 
-    // customer_details.email is the email the customer submitted during checkout
-    // (works for card form fill AND Apple Pay / Google Pay).
-    // customer_email is only a pre-fill hint — always null if we don't pass it at creation.
-    const customerEmail = session.customer_details?.email || session.customer_email || null;
+    const pi = typeof session.payment_intent === 'object' ? session.payment_intent : null;
+
+    // Try all known email sources in order of reliability:
+    // 1. customer_details.email  — set when session reaches 'complete' status
+    // 2. payment_intent.receipt_email — Stripe sets this from the checkout form
+    // 3. customer_email — only a pre-fill hint, usually null unless passed at creation
+    const customerEmail =
+      session.customer_details?.email ||
+      pi?.receipt_email ||
+      session.customer_email ||
+      null;
+
+    console.log(`[SESSION ${sessionId}] status=${session.status} payment_status=${session.payment_status} cd_email=${session.customer_details?.email} pi_receipt=${pi?.receipt_email} resolved=${customerEmail}`);
 
     res.json({
-      status: session.payment_status, // 'paid', 'unpaid', 'no_payment_required'
+      status: session.payment_status,
       amount: session.amount_total,
       currency: session.currency,
       customer_email: customerEmail
     });
   } catch (error) {
+    console.error(`[SESSION ERROR] ${sessionId}: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
