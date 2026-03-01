@@ -188,16 +188,8 @@ class StripeNetworkService {
             requestBody["companyName"] = companyName
         }
         
-        // For zero-decimal currencies (KRW, JPY, etc.) we intentionally skip line items.
-        // Stripe rounds each item independently; summing those can drift from the panel's
-        // rounded total. Sending no line items lets the backend create a single summary
-        // entry at the exact rounded amount, so checkout always matches what the panel shows.
-        let effectiveLineItems = Self.zeroDecimalCurrencies.contains(currency.lowercased())
-            ? nil
-            : lineItems
-
-        if let effectiveLineItems {
-            requestBody["lineItems"] = effectiveLineItems
+        if let lineItems {
+            requestBody["lineItems"] = lineItems
         }
         
         var request = URLRequest(url: url)
