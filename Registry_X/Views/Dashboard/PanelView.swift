@@ -2374,18 +2374,19 @@ struct PanelTableHeaderView: View {
     var body: some View {
         HStack(spacing: 0) {
             Text("PRODUCT")
-                //.frame(maxWidth: .infinity, alignment: .leading)
-                .frame(width: 120, alignment: .center)
-                .padding(.leading, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12)
             Text("PRICE")
-                .frame(width: 80, alignment: .center)
+                .frame(width: 80, alignment: .trailing)
+            Text("-")
+                .frame(width: 40, alignment: .center)
             Text("QTY")
-                .frame(width: 50, alignment: .center)
-                .padding(.leading, 10)
+                .frame(width: 40, alignment: .center)
+            Text("+")
+                .frame(width: 40, alignment: .center)
             Text("TOTAL")
-                .frame(width: 80, alignment: .center)
-            Text("ACTIONS")
-                .frame(width: 85, alignment: .leading)
+                .frame(width: 80, alignment: .trailing)
+                .padding(.trailing, 10)
         }
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(Color.gray)
@@ -2708,6 +2709,7 @@ struct ProductListView: View {
 
                         VStack(spacing: 0) {
                             HStack(spacing: 0) {
+                                // Column 1: Product name
                                 Text(product.name)
                                     .font(.system(size: 16))
                                     .lineLimit(2)
@@ -2715,6 +2717,7 @@ struct ProductListView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, 12)
 
+                                // Column 2: Unit price
                                 Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 16))
                                     .minimumScaleFactor(0.5)
@@ -2722,43 +2725,47 @@ struct ProductListView: View {
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
 
+                                // Column 3: − button
+                                Button {
+                                    updateCart(id: product.id, delta: -1)
+                                } label: {
+                                    Image(systemName: "minus")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .frame(width: 32, height: 32)
+                                        .background(Color.red)
+                                        .foregroundStyle(.white)
+                                        .clipShape(Circle())
+                                }
+                                .frame(width: 40, alignment: .center)
+
+                                // Column 4: Quantity
                                 Text("\(qty)")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
-                                    .frame(width: 40, alignment: .trailing)
+                                    .frame(width: 40, alignment: .center)
 
+                                // Column 5: + button
+                                Button {
+                                    tryAddToCart(product: product)
+                                } label: {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .frame(width: 32, height: 32)
+                                        .background(outOfStock ? Color.gray : Color.green)
+                                        .foregroundStyle(.white)
+                                        .clipShape(Circle())
+                                }
+                                .frame(width: 40, alignment: .center)
+                                .disabled(outOfStock)
+
+                                // Column 6: Row total
                                 Text(currencySymbol(for: currencyCode) + rowTotal.formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 16, weight: .bold))
                                     .minimumScaleFactor(0.5)
                                     .lineLimit(1)
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
-
-                                HStack(spacing: 6) {
-                                    Button {
-                                        updateCart(id: product.id, delta: -1)
-                                    } label: {
-                                        Image(systemName: "minus")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .frame(width: 32, height: 32)
-                                            .background(Color.red)
-                                            .foregroundStyle(.white)
-                                            .clipShape(Circle())
-                                    }
-
-                                    Button {
-                                        tryAddToCart(product: product)
-                                    } label: {
-                                        Image(systemName: "plus")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .frame(width: 32, height: 32)
-                                            .background(outOfStock ? Color.gray : Color.green)
-                                            .foregroundStyle(.white)
-                                            .clipShape(Circle())
-                                    }
-                                    .disabled(outOfStock)
-                                }
-                                .frame(width: 85, alignment: .center)
+                                    .padding(.trailing, 2)
                             }
                             .frame(height: 44)
                             .opacity(outOfStock ? 0.5 : 1.0)
