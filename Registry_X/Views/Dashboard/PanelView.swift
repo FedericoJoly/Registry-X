@@ -2375,18 +2375,18 @@ struct PanelTableHeaderView: View {
         HStack(spacing: 0) {
             Text("PRODUCT")
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12)
+                .padding(.leading, 14)
             Text("PRICE")
-                .frame(width: 80, alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
             Text("-")
-                .frame(width: 40, alignment: .center)
+                .frame(width: 44, alignment: .center)
             Text("QTY")
-                .frame(width: 40, alignment: .center)
+                .frame(width: 44, alignment: .center)
             Text("+")
-                .frame(width: 40, alignment: .center)
+                .frame(width: 44, alignment: .center)
             Text("TOTAL")
                 .frame(width: 80, alignment: .trailing)
-                .padding(.trailing, 10)
+                .padding(.trailing, 14)
         }
         .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(Color.gray)
@@ -2684,6 +2684,11 @@ struct ProductListView: View {
     @State private var stockWarningText: String = ""
     @State private var showingStockWarning: Bool = false
 
+    // Inline qty editing
+    @State private var editingProductId: UUID? = nil
+    @State private var editingQtyText: String = ""
+    @FocusState private var qtyFieldFocused: Bool
+
     /// True when this product is fully out of stock (qty 0) and stock control is active
     private func isOutOfStock(_ product: Product) -> Bool {
         guard event.isStockControlEnabled, let qty = product.stockQty else { return false }
@@ -2717,13 +2722,14 @@ struct ProductListView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, 12)
 
-                                // Column 2: Unit price
+                                // Column 2: Unit price (extra trailing gap before − button)
                                 Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 16))
                                     .minimumScaleFactor(0.5)
                                     .lineLimit(1)
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
+                                    .padding(.trailing, 8)
 
                                 // Column 3: − button
                                 Button {
@@ -2736,13 +2742,36 @@ struct ProductListView: View {
                                         .foregroundStyle(.white)
                                         .clipShape(Circle())
                                 }
-                                .frame(width: 40, alignment: .center)
+                                .frame(width: 44, alignment: .center)
 
-                                // Column 4: Quantity
-                                Text("\(qty)")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(outOfStock ? Color.gray : Color.black)
-                                    .frame(width: 40, alignment: .center)
+                                // Column 4: Quantity — tap to edit inline
+                                Group {
+                                    if editingProductId == product.id {
+                                        TextField("", text: $editingQtyText)
+                                            .keyboardType(.numberPad)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .multilineTextAlignment(.center)
+                                            .frame(width: 36, height: 30)
+                                            .background(Color(UIColor.systemBackground))
+                                            .cornerRadius(6)
+                                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor, lineWidth: 1.5))
+                                            .focused($qtyFieldFocused)
+                                            .onSubmit { commitQtyEdit(for: product) }
+                                            .onChange(of: qtyFieldFocused) { _, focused in
+                                                if !focused { commitQtyEdit(for: product) }
+                                            }
+                                    } else {
+                                        Text("\(qty)")
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundStyle(outOfStock ? Color.gray : Color.black)
+                                            .onTapGesture {
+                                                editingQtyText = qty > 0 ? "\(qty)" : ""
+                                                editingProductId = product.id
+                                                qtyFieldFocused = true
+                                            }
+                                    }
+                                }
+                                .frame(width: 44, alignment: .center)
 
                                 // Column 5: + button
                                 Button {
@@ -2755,7 +2784,7 @@ struct ProductListView: View {
                                         .foregroundStyle(.white)
                                         .clipShape(Circle())
                                 }
-                                .frame(width: 40, alignment: .center)
+                                .frame(width: 44, alignment: .center)
                                 .disabled(outOfStock)
 
                                 // Column 6: Row total
@@ -2765,7 +2794,7 @@ struct ProductListView: View {
                                     .lineLimit(1)
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
-                                    .padding(.trailing, 2)
+                                    .padding(.trailing, 8)
                             }
                             .frame(height: 44)
                             .opacity(outOfStock ? 0.5 : 1.0)
@@ -2827,6 +2856,24 @@ struct ProductListView: View {
         if new >= 0 {
             cart[id] = new
         }
+    }
+
+    /// Commits an inline qty edit: parses typed text, clamps to stock, then closes the field.
+    private func commitQtyEdit(for product: Product) {
+        defer {
+            editingProductId = nil
+            editingQtyText = ""
+        }
+        guard let raw = Int(editingQtyText.trimmingCharacters(in: .whitespaces)), raw >= 0 else { return }
+        // Clamp to available stock if stock control is on
+        let clamped: Int
+        if event.isStockControlEnabled, let stockQty = product.stockQty {
+            clamped = min(raw, max(0, stockQty))
+            if clamped < raw { showStockWarning(for: product.name) }
+        } else {
+            clamped = raw
+        }
+        cart[product.id] = clamped
     }
 
     func currencySymbol(for code: String) -> String {
