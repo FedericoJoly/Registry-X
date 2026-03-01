@@ -49,6 +49,19 @@ enum StripeNetworkError: Error {
 
 class StripeNetworkService {
     private let backendURL: String
+
+    /// Currencies where Stripe expects the whole unit (no subunits / no ×100).
+    private static let zeroDecimalCurrencies: Set<String> = [
+        "bif","clp","djf","gnf","jpy","kmf","krw","mga","pyg","rwf","ugx","vnd","vuv","xaf","xof","xpf"
+    ]
+
+    /// Converts a Decimal amount to the Double the backend expects.
+    /// For zero-decimal currencies the value is rounded to the nearest integer
+    /// so the Stripe Checkout page always shows the same number as the app panel.
+    private static func stripeAmount(_ amount: Decimal, currency: String) -> Double {
+        let value = NSDecimalNumber(decimal: amount).doubleValue
+        return zeroDecimalCurrencies.contains(currency.lowercased()) ? value.rounded() : value
+    }
     
     init(backendURL: String) {
         self.backendURL = backendURL
@@ -163,7 +176,7 @@ class StripeNetworkService {
         // Backend expects amount in base currency (e.g., 10.00 for $10)
         // Backend will convert to cents internally
         var requestBody: [String: Any] = [
-            "amount": NSDecimalNumber(decimal: amount).doubleValue,
+            "amount": StripeNetworkService.stripeAmount(amount, currency: currency),
             "currency": currency.lowercased(),
             "description": description,
             "metadata": metadata,
