@@ -2374,18 +2374,19 @@ struct PanelTableHeaderView: View {
     var body: some View {
         HStack(spacing: 0) {
             Text("PRODUCT")
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.leading, 14)
             Text("PRICE")
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: 80, alignment: .center)
+                .padding(.leading, 8)  // gap between product and price
             Text("-")
                 .frame(width: 44, alignment: .center)
             Text("QTY")
-                .frame(width: 44, alignment: .center)
+                .frame(width: 26, alignment: .center)
             Text("+")
                 .frame(width: 44, alignment: .center)
             Text("TOTAL")
-                .frame(width: 80, alignment: .trailing)
+                .frame(width: 80, alignment: .center)
                 .padding(.trailing, 14)
         }
         .font(.system(size: 12, weight: .semibold))
@@ -2722,14 +2723,14 @@ struct ProductListView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, 12)
 
-                                // Column 2: Unit price (extra trailing gap before − button)
+                                // Column 2: Unit price — 8pt leading gap creates separation from product name
                                 Text(currencySymbol(for: currencyCode) + convertedPrice.formatted(.number.precision(.fractionLength(2))))
                                     .font(.system(size: 16))
                                     .minimumScaleFactor(0.5)
                                     .lineLimit(1)
                                     .foregroundStyle(outOfStock ? Color.gray : Color.black)
                                     .frame(width: 80, alignment: .trailing)
-                                    .padding(.trailing, 8)
+                                    .padding(.leading, 8)
 
                                 // Column 3: − button
                                 Button {
@@ -2749,12 +2750,12 @@ struct ProductListView: View {
                                     if editingProductId == product.id {
                                         TextField("", text: $editingQtyText)
                                             .keyboardType(.numberPad)
-                                            .font(.system(size: 15, weight: .semibold))
+                                            .font(.system(size: 14, weight: .semibold))
                                             .multilineTextAlignment(.center)
-                                            .frame(width: 36, height: 30)
+                                            .frame(width: 24, height: 28)
                                             .background(Color(UIColor.systemBackground))
-                                            .cornerRadius(6)
-                                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor, lineWidth: 1.5))
+                                            .cornerRadius(5)
+                                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor, lineWidth: 1.5))
                                             .focused($qtyFieldFocused)
                                             .onSubmit { commitQtyEdit(for: product) }
                                             .onChange(of: qtyFieldFocused) { _, focused in
@@ -2771,7 +2772,7 @@ struct ProductListView: View {
                                             }
                                     }
                                 }
-                                .frame(width: 44, alignment: .center)
+                                .frame(width: 26, alignment: .center)
 
                                 // Column 5: + button
                                 Button {
