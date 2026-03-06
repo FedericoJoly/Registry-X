@@ -79,6 +79,8 @@ struct PanelView: View {
     @State private var activeCardJob: StripeCardPaymentJob? = nil
     @State private var showingTapToPayEducation = false
     @StateObject private var tapToPayEducationManager = TapToPayEducationManager.shared
+    // [APPLE-TTP] Req 3.7: Show TTP onboarding from checkout if T&C not accepted
+    @State private var showingTTPOnboarding = false
     @State private var showingStripeQRPayment = false    // legacy close signal only
     @State private var activeQRJob: StripeQRPaymentJob? = nil
     @State private var showingBizumPayment = false
@@ -970,6 +972,13 @@ struct PanelView: View {
         }
 
 
+        // [APPLE-TTP] Req 3.7: Onboarding flow triggered from checkout when T&C not yet accepted
+        .fullScreenCover(isPresented: $showingTTPOnboarding) {
+            if let userId = authService.currentUser?.id.uuidString {
+                TapToPaySplashView(userId: userId)
+            }
+        }
+
         .sheet(isPresented: $showingPaymentMethodSheet) {
             PaymentMethodSelectionSheet(
                 availableMethods: availablePaymentMethods,
@@ -1006,8 +1015,17 @@ struct PanelView: View {
                                 )
                             }
                         }
-                        // 3. Stripe Card (creditcard icon with Stripe provider)
+                        // 3. Stripe Card / Tap to Pay on iPhone
                         else if methodOption.icon.contains("creditcard") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
+                            // [APPLE-TTP] Req 3.7 + 5.3: If T&C not accepted, show onboarding first
+                            let userId = authService.currentUser?.id.uuidString ?? ""
+                            if AppConfig.isAppleApprovalMode && !TapToPayEducationManager.shared.hasAcceptedTerms(for: userId) {
+                                showingPaymentMethodSheet = false
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    showingTTPOnboarding = true
+                                }
+                                return
+                            }
                             let txnRef = generateTransactionRef()
                             pendingTxnRef = txnRef
                             if let backendURL = event.stripeBackendURL {

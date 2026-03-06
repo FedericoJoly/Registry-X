@@ -1098,6 +1098,8 @@ struct PaymentMethodConfigSheet: View {
 
     @State private var localBizumPhone: String = ""
     @State private var showingBizumValidationError = false
+    // [APPLE-TTP] Req 3.6: Show TTP onboarding from settings
+    @State private var showingTTPSetup = false
     
     var body: some View {
         NavigationView {
@@ -1262,36 +1264,47 @@ struct PaymentMethodConfigSheet: View {
                                 .padding(.bottom, 12)
                         }
                         
-                        // Tap to Pay Helper (only for Card method with Stripe enabled)
+                        // [APPLE-TTP] Req 3.6 + 4.2: Prominent TTP setup entry in settings
                         if method.name == "Card" && stripeConfig.isEnabled && stripeConfig.isValid {
                             Divider()
                                 .padding(.horizontal, 20)
-                            
-                            NavigationLink(destination: TapToPayEducationView(userId: authService.currentUser?.id.uuidString ?? "")) {
-                                HStack {
-                                    Image(systemName: "hand.tap.fill")
-                                        .font(.body)
-                                        .foregroundStyle(.purple)
-                                    
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Tap to Pay Help")
-                                            .font(.body)
-                                            .fontWeight(.medium)
+
+                            Button(action: {
+                                // Reset splash flag so the full onboarding replays
+                                if let userId = authService.currentUser?.id.uuidString {
+                                    TapToPayEducationManager.shared.resetUser(userId)
+                                }
+                                showingTTPSetup = true
+                            }) {
+                                HStack(spacing: 14) {
+                                    Image(systemName: "wave.3.right.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.blue)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Set up Tap to Pay on iPhone")
+                                            .font(.body.bold())
                                             .foregroundColor(.primary)
-                                        
-                                        Text("Learn how to accept contactless payments")
+
+                                        Text("View guide, accept terms & enable contactless payments")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
-                                    
+
                                     Spacer()
-                                    
+
                                     Image(systemName: "chevron.right")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 16)
+                            }
+                            .buttonStyle(.plain)
+                            .fullScreenCover(isPresented: $showingTTPSetup) {
+                                if let userId = authService.currentUser?.id.uuidString {
+                                    TapToPaySplashView(userId: userId)
+                                }
                             }
                         }
                     }
