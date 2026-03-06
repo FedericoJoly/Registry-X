@@ -94,7 +94,7 @@ struct LoginView: View {
                                     }
                             }
                         
-                        Text("Version 2.0 (2026.2)")
+                        Text("Version 2.0 (\(Calendar.current.component(.year, from: Date())).\(Calendar.current.component(.month, from: Date())))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
