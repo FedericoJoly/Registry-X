@@ -19,6 +19,8 @@ struct SetupProductsView: View {
     
     // Reordering State
     @State private var isEditingMode = false
+    // Scroll anchor — preserves list position after deletion
+    @State private var scrollAnchor: UUID?
     
     var body: some View {
         ZStack {
@@ -53,52 +55,70 @@ struct SetupProductsView: View {
                         .padding(.top, 40)
                         .background(Color(UIColor.systemGray6))
                 } else {
-                    List {
-                        // Safe Binding Loop (Same pattern as Categories to prevent crash)
-                        ForEach(products) { product in
-                            if products.contains(where: { $0.id == product.id }) {
-                                let binding = Binding<DraftProduct>(
-                                    get: {
-                                        products.first(where: { $0.id == product.id }) ?? product
-                                    },
-                                    set: { newValue in
-                                        if let idx = products.firstIndex(where: { $0.id == product.id }) {
-                                            products[idx] = newValue
+                    ScrollViewReader { proxy in
+                        List {
+                            // Safe Binding Loop (Same pattern as Categories to prevent crash)
+                            ForEach(products) { product in
+                                if products.contains(where: { $0.id == product.id }) {
+                                    let binding = Binding<DraftProduct>(
+                                        get: {
+                                            products.first(where: { $0.id == product.id }) ?? product
+                                        },
+                                        set: { newValue in
+                                            if let idx = products.firstIndex(where: { $0.id == product.id }) {
+                                                products[idx] = newValue
+                                            }
                                         }
-                                    }
-                                )
-                                
-                                ProductRow(
-                                    product: binding,
-                                    categoryColor: categoryColor(for: product.categoryId),
-                                    currencyCode: currencyCode,
-                                    isLocked: isLocked,
-                                    isEditing: isEditingMode,
-                                    onTap: {
-                                        if !isLocked && !isEditingMode {
-                                            editingProduct = product
+                                    )
+
+                                    ProductRow(
+                                        product: binding,
+                                        categoryColor: categoryColor(for: product.categoryId),
+                                        currencyCode: currencyCode,
+                                        isLocked: isLocked,
+                                        isEditing: isEditingMode,
+                                        onTap: {
+                                            if !isLocked && !isEditingMode {
+                                                editingProduct = product
+                                            }
+                                        },
+                                        onDuplicate: { duplicatingProduct = product },
+                                        onDelete: {
+                                            // Capture the item just after this one so we can scroll back to it
+                                            if let idx = products.firstIndex(where: { $0.id == product.id }) {
+                                                let nextIdx = idx < products.count - 1 ? idx + 1 : max(0, idx - 1)
+                                                scrollAnchor = products.count > 1 ? products[nextIdx].id : nil
+                                            }
+                                            productIdToDelete = product.id
+                                            showingDeleteAlert = true
                                         }
-                                    },
-                                    onDuplicate: { duplicatingProduct = product },
-                                    onDelete: {
-                                        productIdToDelete = product.id
-                                        showingDeleteAlert = true
+                                    )
+                                    .id(product.id)
+                                    .onLongPressGesture(minimumDuration: 0.5) {
+                                        withAnimation { isEditingMode.toggle() }
                                     }
-                                )
-                                .id(product.id)
-                                .onLongPressGesture(minimumDuration: 0.5) {
-                                    withAnimation { isEditingMode.toggle() }
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                                    .listRowBackground(Color.clear)
                                 }
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                                .listRowBackground(Color.clear)
+                            }
+                            .onMove(perform: moveProduct)
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .environment(\.editMode, .constant(isEditingMode ? .active : .inactive))
+                        .onChange(of: products.count) { _, _ in
+                            // After deletion, scroll back to the anchor so the list doesn't jump to the top
+                            if let anchor = scrollAnchor {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                    withAnimation(.easeOut(duration: 0.15)) {
+                                        proxy.scrollTo(anchor, anchor: .center)
+                                    }
+                                    scrollAnchor = nil
+                                }
                             }
                         }
-                        .onMove(perform: moveProduct)
                     }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .environment(\.editMode, .constant(isEditingMode ? .active : .inactive))
                 }
             }
         }

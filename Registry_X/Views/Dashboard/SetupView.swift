@@ -62,6 +62,8 @@ struct SetupView: View {
     @State private var reopenPin = ""
     @State private var reopenError = false
     @State private var showingFinaliseConfirmation = false
+    // [APPLE-TTP] Req 3.4: Show TTP setup prompt at end of setup save when Stripe is configured
+    @State private var showingTTPPromptAfterSave = false
     
     // Derived Binding (Safe Unwrapping)
     private var draftBinding: Binding<DraftEventSettings> {
@@ -248,47 +250,36 @@ struct SetupView: View {
         }
         
         // Sync Products
-        // 1. Identify IDs in draft
+        // 1. Identify IDs in draft (products we want to KEEP)
         let draftProdIds = Set(draft.products.map { $0.id })
-        
-        // 2. Mark missing products as deleted (soft delete to preserve transaction data)
-        let productsToDelete = event.products.filter { !draftProdIds.contains($0.id) }
-        for prod in productsToDelete {
-            prod.isDeleted = true
-        }
-        
-        // 3. Update or Create
+
+        // 2. Update or Create kept products FIRST (before removing deleted ones)
         for index in draft.products.indices {
             let draftProd = draft.products[index]
-            
-            // Resolve Category (Must exist in DB or be created already in previous step)
-            // Since we synced categories first, we can look them up in event.categories
             let linkedCategory = event.categories.first(where: { $0.id == draftProd.categoryId })
-            
+
             if let existing = event.products.first(where: { $0.id == draftProd.id }) {
-                // Update (and undelete if was deleted)
                 existing.name = draftProd.name
                 existing.price = draftProd.price
                 existing.category = linkedCategory
                 existing.subgroup = draftProd.subgroup.isEmpty ? nil : draftProd.subgroup
                 existing.isActive = draftProd.isActive
                 existing.isPromo = draftProd.isPromo
-                existing.isDeleted = false // Undelete if was deleted
+                existing.isDeleted = false
                 existing.sortOrder = index
                 existing.stockQty = draftProd.stockQty
-            } else if let deletedProduct = event.products.first(where: { $0.name == draftProd.name && $0.isDeleted }) {
-                // Reuse deleted product with same name (prevents duplicates)
-                deletedProduct.id = draftProd.id
-                deletedProduct.price = draftProd.price
-                deletedProduct.category = linkedCategory
-                deletedProduct.subgroup = draftProd.subgroup.isEmpty ? nil : draftProd.subgroup
-                deletedProduct.isActive = draftProd.isActive
-                deletedProduct.isPromo = draftProd.isPromo
-                deletedProduct.isDeleted = false // Undelete
-                deletedProduct.sortOrder = index
-                deletedProduct.stockQty = draftProd.stockQty
+            } else if let recycled = event.products.first(where: { $0.name == draftProd.name && $0.isDeleted }) {
+                // Reuse a previously soft-deleted product with the same name
+                recycled.id = draftProd.id
+                recycled.price = draftProd.price
+                recycled.category = linkedCategory
+                recycled.subgroup = draftProd.subgroup.isEmpty ? nil : draftProd.subgroup
+                recycled.isActive = draftProd.isActive
+                recycled.isPromo = draftProd.isPromo
+                recycled.isDeleted = false
+                recycled.sortOrder = index
+                recycled.stockQty = draftProd.stockQty
             } else {
-                // Create new product
                 let newProd = Product(
                     id: draftProd.id,
                     name: draftProd.name,
@@ -302,6 +293,22 @@ struct SetupView: View {
                 newProd.stockQty = draftProd.stockQty
                 newProd.event = event
                 modelContext.insert(newProd)
+            }
+        }
+
+        // 3. Remove products that were deleted from the draft — AFTER updating kept ones.
+        //    Hard-delete if no transactions reference them (cleanest approach, avoids
+        //    SwiftData observation re-render racing with isDeleted soft-delete).
+        //    Soft-delete only if they have transaction history (preserve data integrity).
+        let productsToRemove = event.products.filter { !draftProdIds.contains($0.id) && !$0.isDeleted }
+        for prod in productsToRemove {
+            let hasTransactions = event.transactions.contains { tx in
+                tx.lineItems.contains { $0.productName == prod.name }
+            }
+            if hasTransactions {
+                prod.isDeleted = true  // Soft-delete: keep for reporting, hide from UI
+            } else {
+                modelContext.delete(prod)  // Hard-delete: no history to preserve
             }
         }
         
@@ -411,10 +418,24 @@ struct SetupView: View {
         draftSettings?.paymentMethods = currentPaymentMethods
         // Update original payment methods since we just saved
         originalPaymentMethods = currentPaymentMethods
+        // CRITICAL: Update originalDraftSettings baseline so change detection
+        // doesn't immediately fire a false positive after the double-onChange
+        // triggered by resetting draftSettings + paymentMethods.
+        originalDraftSettings = draftSettings
         
         // Show confirmation
         showActionNotification("Settings Saved", color: .blue)
-        
+
+        // [APPLE-TTP] Req 3.4: Prompt TTP setup after save if Stripe enabled and T&C not yet accepted
+        if AppConfig.isAppleApprovalMode,
+           draft.stripeIntegrationEnabled,
+           let userId = authService.currentUser?.id.uuidString,
+           !TapToPayEducationManager.shared.hasAcceptedTerms(for: userId) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                showingTTPPromptAfterSave = true
+            }
+        }
+
         // Reset external state
         triggerSave = false
         hasUnsavedChanges = false
@@ -712,7 +733,6 @@ struct SetupView: View {
         )
         .padding(.top, 20)
         .padding(.bottom, 20)
-        .id(draftBinding.products.wrappedValue.count)
         .navigationTitle("Products")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -1047,6 +1067,12 @@ struct SetupView: View {
             }
         } message: {
             Text("Confirm to finalise this event now?")
+        }
+        // [APPLE-TTP] Req 3.4: TTP setup prompt shown after first Stripe-enabled event save
+        .fullScreenCover(isPresented: $showingTTPPromptAfterSave) {
+            if let userId = authService.currentUser?.id.uuidString {
+                TapToPaySplashView(userId: userId)
+            }
         }
     }
     
