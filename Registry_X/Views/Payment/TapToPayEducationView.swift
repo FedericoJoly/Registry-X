@@ -60,6 +60,19 @@ struct TapToPayEducationView: View {
                 "Hold your iPhone steady during the tap",
                 "Ensure you have an active internet connection"
             ]
+        ),
+        EducationPage(
+            title: "How to Enable Tap to Pay",
+            description: "Follow these steps to get started:",
+            imageName: "list.bullet.clipboard.fill",
+            tips: [
+                "1. Create or open an event and head to Setup > Payment",
+                "2. Configure and enable your payment provider (e.g. Stripe) in the Providers section",
+                "3. Enable the Tap to Pay method under Methods and tap the cog to configure it",
+                "4. Enable currencies and your payment provider inside the Tap to Pay config",
+                "5. Tap to Pay is ready to use!",
+                "Tip: to revisit these instructions, go to Setup > Payment > Tap to Pay > Instructions"
+            ]
         )
     ]
 

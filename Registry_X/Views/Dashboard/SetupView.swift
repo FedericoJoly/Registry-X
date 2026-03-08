@@ -1296,6 +1296,25 @@ struct DraftEventSettings: Equatable {
             if migrated, let updatedData = try? JSONEncoder().encode(self.paymentMethods) {
                 event.paymentMethodsData = updatedData
             }
+            
+            // Migration: Rename "Card" → "Tap to Pay" with TTP icon
+            var ttpMigrated = false
+            if let cardIndex = self.paymentMethods.firstIndex(where: { $0.name == "Card" && $0.icon.contains("creditcard") }) {
+                let old = self.paymentMethods[cardIndex]
+                self.paymentMethods[cardIndex] = PaymentMethodOption(
+                    id: old.id,
+                    name: "Tap to Pay",
+                    icon: "wave.3.right.circle.fill",
+                    colorHex: "#007AFF",
+                    isEnabled: old.isEnabled,
+                    enabledCurrencies: old.enabledCurrencies,
+                    enabledProviders: old.enabledProviders
+                )
+                ttpMigrated = true
+            }
+            if ttpMigrated, let updatedData = try? JSONEncoder().encode(self.paymentMethods) {
+                event.paymentMethodsData = updatedData
+            }
         } else {
             // Initialize default payment methods if not stored
             // Enable main currency in Cash by default
@@ -1303,7 +1322,7 @@ struct DraftEventSettings: Equatable {
             
             self.paymentMethods = [
                 PaymentMethodOption(name: "Cash", icon: "banknote", color: .green, isEnabled: true, enabledCurrencies: [mainCurrencyId]),
-                PaymentMethodOption(name: "Card", icon: "creditcard", color: .blue, isEnabled: true),
+                PaymentMethodOption(name: "Tap to Pay", icon: "wave.3.right.circle.fill", color: .blue, isEnabled: true),
                 PaymentMethodOption(name: "QR Code", icon: "qrcode", color: .purple, isEnabled: true),
                 PaymentMethodOption(name: "Bizum", icon: "phone.fill", color: Color(hex: "#00BAC1"), isEnabled: true, enabledCurrencies: [mainCurrencyId])
             ]

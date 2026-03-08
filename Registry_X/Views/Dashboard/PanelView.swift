@@ -1016,7 +1016,7 @@ struct PanelView: View {
                             }
                         }
                         // 3. Stripe Card / Tap to Pay on iPhone
-                        else if methodOption.icon.contains("creditcard") && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
+                        else if (methodOption.icon.contains("creditcard") || methodOption.icon.contains("wave.3")) && methodOption.enabledProviders.contains("stripe") && event.stripeIntegrationEnabled {
                             // [APPLE-TTP] Req 3.7 + 5.3: If T&C not accepted, show onboarding first
                             let userId = authService.currentUser?.id.uuidString ?? ""
                             if AppConfig.isAppleApprovalMode && !TapToPayEducationManager.shared.hasAcceptedTerms(for: userId) {
@@ -1391,7 +1391,7 @@ struct PanelView: View {
                 },
                 onConfirm: { entries in
                     let priority: (SplitEntry) -> Int = { e in
-                        if e.methodIcon.contains("creditcard") { return 3 }
+                        if e.methodIcon.contains("creditcard") || e.methodIcon.contains("wave.3") { return 3 }
                         if e.methodIcon.contains("qrcode") { return 2 }
                         if e.methodIcon.contains("phone") { return 1 }
                         return 0
@@ -2083,7 +2083,7 @@ struct PanelView: View {
                 return
             }
             let entry = pendingSplitEntries[idx]
-            let isCard  = entry.methodIcon.contains("creditcard")
+            let isCard  = entry.methodIcon.contains("creditcard") || entry.methodIcon.contains("wave.3")
             let isQR    = entry.methodIcon.contains("qrcode")
             let isBizum = entry.methodIcon.contains("phone")
             let hasStripeBackend = event.stripeBackendURL != nil

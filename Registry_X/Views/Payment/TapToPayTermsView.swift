@@ -19,64 +19,52 @@ struct TapToPayTermsView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Header
-                VStack(spacing: 10) {
+                // Header — compact to maximise web view height
+                HStack(spacing: 10) {
                     Image(systemName: "wave.3.right.circle.fill")
-                        .font(.system(size: 52))
+                        .font(.system(size: 28))
                         .foregroundStyle(.blue)
-                        .padding(.top, 20)
 
-                    Text("Tap to Pay on iPhone")
-                        .font(.title2.bold())
-
-                    Text("Review and accept Apple's Terms & Conditions to use Tap to Pay on iPhone")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 12)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Tap to Pay on iPhone")
+                            .font(.subheadline.bold())
+                        Text("Review and accept Apple's Terms & Conditions")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
                 }
                 .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .background(Color(UIColor.secondarySystemBackground))
 
                 Divider()
 
                 // Apple's official Terms embedded in a web view
                 SafariWebView(url: termsURL)
-
-                Divider()
-
-                // Accept + Decline bottom bar
-                VStack(spacing: 10) {
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Decline") {
+                        dismiss()
+                    }
+                    .foregroundColor(.red)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         TapToPayEducationManager.shared.markTermsAccepted(for: userId)
                         onAccept()
                     }) {
                         Label("Accept & Continue", systemImage: "checkmark")
-                            .font(.headline)
+                            .font(.subheadline.bold())
                             .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
                             .background(Color.blue)
-                            .cornerRadius(14)
+                            .cornerRadius(10)
                     }
-
-                    Text("By accepting, you agree to Apple's Tap to Pay on iPhone Platform Terms & Conditions")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(Color(UIColor.systemBackground).opacity(0.97))
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Decline") {
-                        dismiss()
-                    }
-                    .foregroundColor(.red)
                 }
             }
         }

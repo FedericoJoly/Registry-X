@@ -1219,7 +1219,7 @@ struct PaymentMethodConfigSheet: View {
                 }
                 
                 // Providers Section (only for Card and QR Code)
-                if method.name == "Card" || method.name == "QR Code" {
+                if method.name == "Tap to Pay" || method.name == "QR Code" {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("PROVIDERS")
                             .font(.caption.bold())
@@ -1265,7 +1265,7 @@ struct PaymentMethodConfigSheet: View {
                         }
                         
                         // [APPLE-TTP] Req 3.6 + 4.2: Prominent TTP setup entry in settings
-                        if method.name == "Card" && stripeConfig.isEnabled && stripeConfig.isValid {
+                        if method.name == "Tap to Pay" && stripeConfig.isEnabled && stripeConfig.isValid {
                             Divider()
                                 .padding(.horizontal, 20)
 
@@ -1282,11 +1282,11 @@ struct PaymentMethodConfigSheet: View {
                                         .foregroundStyle(.blue)
 
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text("Set up Tap to Pay on iPhone")
+                                        Text("Tap to Pay on iPhone Instructions")
                                             .font(.body.bold())
                                             .foregroundColor(.primary)
 
-                                        Text("View guide, accept terms & enable contactless payments")
+                                        Text("View the setup guide and how-to steps")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }

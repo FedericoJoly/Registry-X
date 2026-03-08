@@ -29,7 +29,7 @@ struct PaymentMethodSelectionSheet: View {
     }
 
     private func isTTPMethod(_ method: PaymentMethodOption) -> Bool {
-        method.icon.contains("creditcard") && method.enabledProviders.contains("stripe")
+        (method.icon.contains("creditcard") || method.icon.contains("wave.3")) && method.enabledProviders.contains("stripe")
     }
 
     var body: some View {
@@ -194,7 +194,7 @@ extension PaymentMethodOption {
         switch icon {
         case "banknote":
             return .cash
-        case "creditcard", "creditcard.fill":
+        case "creditcard", "creditcard.fill", "wave.3.right.circle.fill":
             return .card
         case "building.columns", "banknote.fill":
             return .transfer
